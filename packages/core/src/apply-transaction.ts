@@ -226,9 +226,15 @@ export class ApplyTransaction {
           await measure("rollback", () => this.#rollback(snapshot!, staged));
           staged = null;
           snapshot = null;
+          // Field reports used to show only the renderer's final state.
+          // Appending the server-side phase costs shows which stage ate the
+          // deadline without needing the local import-timing log.
+          const phaseSummary = Object.entries(phases)
+            .map(([name, ms]) => `${name}=${ms}ms`)
+            .join(",");
           return {
             ok: false,
-            error: `Live verify did not pass (${verify.status}): ${verify.reason}`,
+            error: `Live verify did not pass (${verify.status}): ${verify.reason}；事务阶段=${phaseSummary}`,
             rolledBack: true,
             sourceMode,
             timings: timings(),

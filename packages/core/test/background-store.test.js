@@ -556,6 +556,8 @@ test("apply transaction does not retry non-warmup video verify failures", async 
     1,
   );
   assert.ok(!("rendererVerifyRetry" in result.timings.phases));
+  assert.match(result.error, /Live verify did not pass \(fail\)/);
+  assert.match(result.error, /事务阶段=.+rendererVerify=/);
   // Two applies: the failed attempt plus the rollback restore, no retry.
   assert.equal(applies.length, 2);
   assert.notEqual(applies[0].generation, applies[1].generation);

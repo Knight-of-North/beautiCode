@@ -1436,3 +1436,350 @@ test("transient video heartbeat is pending until an explicit renderer verdict", 
   assert.equal(status.failedClients, 1);
   assert.equal(status.lastRenderError, decodeError);
 });
+
+test("browser client warms the media stack on init and reports media-event diagnostics", async () => {
+  const source = await fs.readFile(new URL("../client.js", import.meta.url), "utf8");
+
+  const dataKey = (name) =>
+    name
+      .replace(/^data-/, "")
+      .replace(/-([a-z])/g, (_all, ch) => ch.toUpperCase());
+
+  class FakeElement {
+    constructor(tagName) {
+      this.tagName = String(tagName).toUpperCase();
+      this.className = "";
+      this.dataset = {};
+      this.style = new Proxy(
+        { cssText: "" },
+        {
+          set(target, key, value) {
+            if (key === "cssText") target.cssText = value;
+            return true;
+          },
+          get(target, key) {
+            return key === "cssText" ? target.cssText : "";
+          },
+        },
+      );
+      this.attributes = new Map();
+      this.children = [];
+      this.parentElement = null;
+      this.listeners = new Map();
+    }
+
+    setAttribute(name, value) {
+      if (name.startsWith("data-")) this.dataset[dataKey(name)] = value;
+      else this.attributes.set(name, value);
+    }
+
+    removeAttribute(name) {
+      if (name.startsWith("data-")) delete this.dataset[dataKey(name)];
+      else this.attributes.delete(name);
+    }
+
+    hasAttribute(name) {
+      if (name.startsWith("data-")) return dataKey(name) in this.dataset;
+      return this.attributes.has(name);
+    }
+
+    toggleAttribute(name, force) {
+      const next = force === undefined ? !this.hasAttribute(name) : force;
+      if (next) this.setAttribute(name, "");
+      else this.removeAttribute(name);
+    }
+
+    append(...nodes) {
+      for (const node of nodes) {
+        node.remove();
+        node.parentElement = this;
+        this.children.push(node);
+      }
+    }
+
+    prepend(...nodes) {
+      for (const node of [...nodes].reverse()) {
+        node.remove();
+        node.parentElement = this;
+        this.children.unshift(node);
+      }
+    }
+
+    remove() {
+      if (!this.parentElement) return;
+      const siblings = this.parentElement.children;
+      const index = siblings.indexOf(this);
+      if (index >= 0) siblings.splice(index, 1);
+      this.parentElement = null;
+    }
+
+    addEventListener(name, handler) {
+      const list = this.listeners.get(name) ?? [];
+      list.push(handler);
+      this.listeners.set(name, list);
+    }
+
+    removeEventListener() {}
+
+    dispatch(name) {
+      for (const handler of this.listeners.get(name) ?? []) {
+        handler({ target: this, type: name });
+      }
+    }
+
+    matches(selector) {
+      if (selector === "img" || selector === "video") {
+        return this.tagName === selector.toUpperCase();
+      }
+      const match = selector.match(
+        /^\.([^[]+)\[data-bc-role=["']([^"']+)["']\]$/,
+      );
+      return Boolean(
+        match &&
+          this.className.split(/\s+/).includes(match[1]) &&
+          this.dataset.bcRole === match[2],
+      );
+    }
+
+    querySelectorAll(selector) {
+      const parts = selector.trim().split(/\s+/);
+      if (parts.length > 1) {
+        return this.querySelectorAll(parts[0]).flatMap((node) =>
+          node.querySelectorAll(parts.slice(1).join(" ")),
+        );
+      }
+      const matches = [];
+      for (const child of this.children) {
+        if (child.matches(selector)) matches.push(child);
+        matches.push(...child.querySelectorAll(selector));
+      }
+      return matches;
+    }
+
+    querySelector(selector) {
+      return this.querySelectorAll(selector)[0] ?? null;
+    }
+  }
+
+  const createdVideos = [];
+  class FakeVideo extends FakeElement {
+    constructor() {
+      super("video");
+      this.readyState = 0;
+      this.networkState = 0;
+      this.paused = true;
+      this.ended = false;
+      this.seeking = false;
+      this.error = null;
+      this.currentTime = 0;
+      this._src = "";
+      createdVideos.push(this);
+    }
+
+    set src(value) {
+      this._src = value;
+      if (typeof value === "string" && value.startsWith("data:video/mp4")) {
+        // The bundled warmup frame "decodes" instantly in the fake DOM.
+        queueMicrotask(() => this.dispatch("loadeddata"));
+      }
+    }
+
+    get src() {
+      return this._src;
+    }
+
+    play() {
+      this.paused = false;
+      return Promise.resolve();
+    }
+
+    load() {}
+  }
+
+  class FakeImage extends FakeElement {
+    constructor() {
+      super("img");
+      this.complete = false;
+      this.naturalWidth = 0;
+      this.naturalHeight = 0;
+    }
+
+    set src(value) {
+      queueMicrotask(() => {
+        this.complete = true;
+        this.naturalWidth = 1920;
+        this.naturalHeight = 1080;
+        this.onload?.();
+      });
+    }
+
+    decode() {
+      return Promise.resolve();
+    }
+  }
+
+  const documentElement = new FakeElement("html");
+  documentElement.style.colorScheme = "light";
+  const head = new FakeElement("head");
+  const body = new FakeElement("body");
+  const root = new FakeElement("div");
+  root.id = "root";
+  documentElement.append(head, body);
+  body.append(root);
+
+  const findById = (node, id) => {
+    if (node.id === id) return node;
+    for (const child of node.children) {
+      const match = findById(child, id);
+      if (match) return match;
+    }
+    return null;
+  };
+
+  let events;
+  const acknowledgements = [];
+  let resolveFailedAck;
+  const failedAck = new Promise((resolve) => {
+    resolveFailedAck = resolve;
+  });
+  const context = {
+    AbortController,
+    DOMException,
+    URL,
+    WeakMap,
+    crypto: { randomUUID: () => "client-warmup-diag-test" },
+    document: {
+      body,
+      documentElement,
+      head,
+      visibilityState: "visible",
+      createElement(tagName) {
+        if (tagName === "video") return new FakeVideo();
+        if (tagName === "img") return new FakeImage();
+        return new FakeElement(tagName);
+      },
+      getElementById: (id) => findById(documentElement, id),
+    },
+    fetch: async (_url, options = {}) => {
+      if (options.body) {
+        const body = JSON.parse(options.body);
+        acknowledgements.push(body);
+        if (body.kind === "render" && body.ok === false) {
+          resolveFailedAck(body);
+        }
+        return { ok: true };
+      }
+      return {
+        status: 206,
+        arrayBuffer: async () => new ArrayBuffer(2),
+      };
+    },
+    HTMLMediaElement: { HAVE_CURRENT_DATA: 2, HAVE_FUTURE_DATA: 3 },
+    HTMLVideoElement: FakeVideo,
+    Image: FakeImage,
+    location: { href: "http://127.0.0.1:3080/" },
+    matchMedia: () => ({ matches: false, addEventListener() {} }),
+    MutationObserver: class {
+      observe() {}
+    },
+    navigator: { onLine: true },
+    performance: { now: () => Date.now() },
+    EventSource: class {
+      constructor() {
+        events = this;
+      }
+    },
+    clearInterval,
+    clearTimeout,
+    queueMicrotask,
+    setInterval: () => 0,
+    setTimeout,
+  };
+  context.window = context;
+  context.globalThis = context;
+  vm.runInNewContext(source, context);
+
+  // Warmup ran on init: a tiny muted video mounted under the page root with
+  // the bundled black-frame data URI.
+  const warmup = createdVideos[0];
+  assert.ok(warmup, "init must create a warmup video");
+  assert.match(warmup.src, /^data:video\/mp4;base64,/);
+  assert.equal(warmup.parentElement, documentElement);
+  assert.equal(warmup.muted, true);
+  assert.equal(documentElement.dataset.bcMediaWarmup, "running");
+  warmup.dispatch("ended");
+  assert.equal(warmup.parentElement, null, "warmup video must be removed after ending");
+  assert.equal(documentElement.dataset.bcMediaWarmup, "done");
+
+  // First real apply succeeds through the normal candidate path.
+  const videoUrl1 = "http://127.0.0.1:3080/media/video?t=diag-one";
+  events.onmessage({
+    data: JSON.stringify({
+      type: "apply",
+      generation: 701,
+      media: "video",
+      imageUrl: "http://127.0.0.1:3080/media/image?t=diag-one",
+      videoUrl: videoUrl1,
+      startAt: 0,
+    }),
+  });
+  const applyVideo = await new Promise((resolve) => {
+    const started = Date.now();
+    const poll = () => {
+      const found = createdVideos.find((video) => video.src === videoUrl1);
+      if (found) resolve(found);
+      else if (Date.now() - started > 1_000) resolve(null);
+      else setTimeout(poll, 5);
+    };
+    poll();
+  });
+  assert.ok(applyVideo, "the apply must create its own candidate video");
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  applyVideo.readyState = 2;
+  applyVideo.dispatch("loadeddata");
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  applyVideo.currentTime = 0.5;
+  applyVideo.dispatch("playing");
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  const okAcks = acknowledgements.filter(
+    (body) => body.kind === "render" && body.ok === true && body.generation === 701,
+  );
+  assert.equal(okAcks.length, 1);
+
+  // Second apply fails mid-load; the ack error must carry the media-event
+  // timeline so field reports show which stage stalled.
+  const videoUrl2 = "http://127.0.0.1:3080/media/video?t=diag-two";
+  events.onmessage({
+    data: JSON.stringify({
+      type: "apply",
+      generation: 702,
+      media: "video",
+      imageUrl: "http://127.0.0.1:3080/media/image?t=diag-two",
+      videoUrl: videoUrl2,
+      startAt: 0,
+    }),
+  });
+  const failingVideo = await new Promise((resolve) => {
+    const started = Date.now();
+    const poll = () => {
+      const found = createdVideos.find((video) => video.src === videoUrl2);
+      if (found) resolve(found);
+      else if (Date.now() - started > 1_000) resolve(null);
+      else setTimeout(poll, 5);
+    };
+    poll();
+  });
+  assert.ok(failingVideo, "the failing apply must create a candidate video");
+  failingVideo.dispatch("loadstart");
+  failingVideo.dispatch("progress");
+  failingVideo.readyState = 1;
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  failingVideo.error = { code: 3 };
+  failingVideo.dispatch("error");
+  const failure = await failedAck;
+  assert.equal(failure.generation, 702);
+  assert.match(failure.error, /MP4 加载或解码失败/);
+  assert.match(failure.error, /媒体事件=loadstart@\d+ms/);
+  assert.match(failure.error, /，progress@\d+ms/);
+  assert.match(failure.error, /，error@\d+ms/);
+});

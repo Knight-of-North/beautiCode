@@ -23,6 +23,9 @@
   const VIDEO_STABLE_FRAMES = 3;
   const VIDEO_STABLE_PROGRESS_SEC = 0.18;
   const CROSSFADE_MS = 180;
+  // A 1486-byte H.264 black frame (faststart). Playing it once on init makes
+  // Chromium build its media pipeline before the user's first real import.
+  const WARMUP_VIDEO_DATA_URI = `data:video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAMQbW9vdgAAAGxtdmhkAAAAAAAAAAAAAAAAAAAD6AAAAH0AAQAAAQAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAjp0cmFrAAAAXHRraGQAAAADAAAAAAAAAAAAAAABAAAAAAAAAH0AAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAAEAAAABAAAAAAAAkZWR0cwAAABxlbHN0AAAAAAAAAAEAAAB9AAAAAAABAAAAAAGybWRpYQAAACBtZGhkAAAAAAAAAAAAAAAAAABAAAAACABVxAAAAAAALWhkbHIAAAAAAAAAAHZpZGUAAAAAAAAAAAAAAABWaWRlb0hhbmRsZXIAAAABXW1pbmYAAAAUdm1oZAAAAAEAAAAAAAAAAAAAACRkaW5mAAAAHGRyZWYAAAAAAAAAAQAAAAx1cmwgAAAAAQAAAR1zdGJsAAAAuXN0c2QAAAAAAAAAAQAAAKlhdmMxAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAEAAQABIAAAASAAAAAAAAAABFUxhdmM2Mi4yOC4xMDIgbGlieDI2NAAAAAAAAAAAAAAAGP//AAAAL2F2Y0MBQsAN/+EAF2dCwA3ZBCbARAAAAwAEAAADAEA8UKkgAQAFaMuDyyAAAAAQcGFzcAAAAAEAAAABAAAAFGJ0cnQAAAAAAACjgAAAAAAAAAAYc3R0cwAAAAAAAAABAAAAAQAACAAAAAAcc3RzYwAAAAAAAAABAAAAAQAAAAEAAAABAAAAFHN0c3oAAAAAAAACjgAAAAEAAAAUc3RjbwAAAAAAAAABAAADQAAAAGJ1ZHRhAAAAWm1ldGEAAAAAAAAAIWhkbHIAAAAAAAAAAG1kaXJhcHBsAAAAAAAAAAAAAAAALWlsc3QAAAAlqXRvbwAAAB1kYXRhAAAAAQAAAABMYXZmNjIuMTIuMTAyAAAACGZyZWUAAAKWbWRhdAAAAnAGBf//bNxF6b3m2Ui3lizYINkj7u94MjY0IC0gY29yZSAxNjUgcjMyMjMgMDQ4MGNiMCAtIEguMjY0L01QRUctNCBBVkMgY29kZWMgLSBDb3B5bGVmdCAyMDAzLTIwMjUgLSBodHRwOi8vd3d3LnZpZGVvbGFuLm9yZy94MjY0Lmh0bWwgLSBvcHRpb25zOiBjYWJhYz0wIHJlZj0zIGRlYmxvY2s9MTowOjAgYW5hbHl6ZT0weDE6MHgxMTEgbWU9aGV4IHN1Ym1lPTcgcHN5PTEgcHN5X3JkPTEuMDA6MC4wMCBtaXhlZF9yZWY9MSBtZV9yYW5nZT0xNiBjaHJvbWFfbWU9MSB0cmVsbGlzPTEgOHg4ZGN0PTAgY3FtPTAgZGVhZHpvbmU9MjEsMTEgZmFzdF9wc2tpcD0xIGNocm9tYV9xcF9vZmZzZXQ9LTIgdGhyZWFkcz0yIGxvb2thaGVhZF90aHJlYWRzPTEgc2xpY2VkX3RocmVhZHM9MCBucj0wIGRlY2ltYXRlPTEgaW50ZXJsYWNlPTAgYmx1cmF5X2NvbXBhdD0wIGNvbnN0cmFpbmVkX2ludHJhPTAgYmZyYW1lcz0wIHdlaWdodHA9MCBrZXlpbnQ9MjUwIGtleWludF9taW49OCBzY2VuZWN1dD00MCBpbnRyYV9yZWZyZXNoPTAgcmNfbG9va2FoZWFkPTQwIHJjPWNyZiBtYnRyZWU9MSBjcmY9MjMuMCBxY29tcD0wLjYwIHFwbWluPTAgcXBtYXg9NjkgcXBzdGVwPTQgaXBfcmF0aW89MS40MCBhcT0xOjEuMDBAIAAAAAWZYiEDvJigAC+/JycnXXXXXXXXXXXXg==`;
   let activePayload = null;
   let committedPayload = null;
   let renderPhase = "idle";
@@ -96,6 +99,57 @@ html[data-bc-active="true"] [class*="_fade"]{display:none!important}
 html[data-bc-fish="true"] #root{opacity:0!important;visibility:hidden!important;pointer-events:none!important}
 `;
   document.head.append(style);
+
+  // Chromium builds its media stack lazily; the first <video> of a fresh
+  // profile pays decoder/GPU/audio init inside the first import's verify
+  // deadline. One muted playback of the bundled frame pays that cost early.
+  // Everything is best-effort: a warmup failure must never affect the page.
+  function warmUpMediaStack() {
+    try {
+      const mount = document.documentElement;
+      if (typeof mount?.append !== "function") return;
+      if (mount.dataset.bcMediaWarmup === "done") return;
+      mount.dataset.bcMediaWarmup = "running";
+      const video = document.createElement("video");
+      let cleaned = false;
+      const cleanup = () => {
+        if (cleaned) return;
+        cleaned = true;
+        clearTimeout(timer);
+        try {
+          video.removeAttribute("src");
+          video.load();
+        } catch {}
+        video.remove?.();
+        mount.dataset.bcMediaWarmup = "done";
+      };
+      const timer = setTimeout(cleanup, 15_000);
+      video.muted = true;
+      video.defaultMuted = true;
+      video.playsInline = true;
+      video.autoplay = true;
+      video.setAttribute?.("muted", "");
+      video.setAttribute?.("disablepictureinpicture", "");
+      video.setAttribute?.("aria-hidden", "true");
+      video.tabIndex = -1;
+      // Nearly transparent or hidden media can be decode-deferred (see the
+      // first-frame fix); a 4x4 fully painted square under every layer is
+      // imperceptible while remaining decodable.
+      video.style.cssText =
+        "position:fixed;left:0;top:0;width:4px;height:4px;opacity:1;pointer-events:none;z-index:-2147483647;border:0;margin:0;padding:0";
+      video.addEventListener?.("ended", cleanup, { once: true });
+      video.addEventListener?.("error", cleanup, { once: true });
+      video.src = WARMUP_VIDEO_DATA_URI;
+      mount.append(video);
+      const playback = video.play?.();
+      playback?.catch?.(() => {});
+    } catch {
+      try {
+        document.documentElement.dataset.bcMediaWarmup = "done";
+      } catch {}
+    }
+  }
+  warmUpMediaStack();
 
   function dshAppearance() {
     const body = document.body;
@@ -559,6 +613,49 @@ html[data-bc-fish="true"] #root{opacity:0!important;visibility:hidden!important;
     }
   }
 
+  const videoEventLog = new WeakMap();
+  const VIDEO_DIAGNOSTIC_EVENTS = [
+    "loadstart",
+    "durationchange",
+    "loadedmetadata",
+    "loadeddata",
+    "progress",
+    "canplay",
+    "canplaythrough",
+    "playing",
+    "waiting",
+    "stalled",
+    "suspend",
+    "emptied",
+    "error",
+    "abort",
+  ];
+
+  // Field reports only used to show the final readyState. Recording when
+  // each media event fired turns a bare timeout into a stage timeline: no
+  // events at all means the request never started, loadstart-then-nothing
+  // means the first range reads stalled (antivirus / cold cache).
+  function trackVideoDiagnostics(video) {
+    if (!video || typeof video.addEventListener !== "function") return;
+    if (videoEventLog.has(video)) return;
+    const log = [];
+    videoEventLog.set(video, log);
+    for (const name of VIDEO_DIAGNOSTIC_EVENTS) {
+      video.addEventListener(name, () => {
+        log.push(`${name}@${Math.round(performance.now())}ms`);
+        if (log.length > 14) log.splice(0, log.length - 14);
+      });
+    }
+  }
+
+  function describeVideoDiagnostics(video) {
+    const log = videoEventLog.get(video);
+    if (!Array.isArray(log) || log.length === 0) {
+      return "媒体事件=无（媒体请求未开始）";
+    }
+    return `媒体事件=${log.join("，")}`;
+  }
+
   function describeVideoState(video, phase) {
     const mediaErrorNames = {
       1: "MEDIA_ERR_ABORTED",
@@ -569,7 +666,7 @@ html[data-bc-fish="true"] #root{opacity:0!important;visibility:hidden!important;
     const code = Number(video?.error?.code) || 0;
     const mediaError = code ? mediaErrorNames[code] || `MEDIA_ERR_${code}` : "none";
     const src = video?.currentSrc || video?.src || "";
-    return `${phase}；mediaError=${mediaError}；readyState=${video?.readyState ?? -1}；networkState=${video?.networkState ?? -1}；paused=${Boolean(video?.paused)}；${videoRequestContext(src)}`;
+    return `${phase}；mediaError=${mediaError}；readyState=${video?.readyState ?? -1}；networkState=${video?.networkState ?? -1}；paused=${Boolean(video?.paused)}；${videoRequestContext(src)}；${describeVideoDiagnostics(video)}`;
   }
 
   function waitForVideo(video, signal, timeoutMs = VIDEO_STARTUP_TIMEOUT_MS) {
@@ -1202,6 +1299,7 @@ html[data-bc-fish="true"] #root{opacity:0!important;visibility:hidden!important;
     if (reusable && payload.media === "video") {
       try {
         const reusableVideo = activeVideo();
+        trackVideoDiagnostics(reusableVideo);
         const requestedStartAt = Number(payload.startAt);
         const normalizedStartAt =
           Number.isFinite(requestedStartAt) && requestedStartAt >= 0 ? requestedStartAt : 0;
@@ -1255,6 +1353,7 @@ html[data-bc-fish="true"] #root{opacity:0!important;visibility:hidden!important;
         throw new Error("视频载荷无效");
       }
       const video = document.createElement("video");
+      trackVideoDiagnostics(video);
       video.autoplay = true;
       video.loop = true;
       video.playsInline = true;
