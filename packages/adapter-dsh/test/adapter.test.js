@@ -7,8 +7,10 @@ import test from "node:test";
 import {
   DshHostApplier,
   DshSession,
+  dshTrustedOrigins,
   normalizeDshBaseUrl,
 } from "../dist/index.js";
+import { MediaServerController } from "@beauticode/core";
 
 const TOKEN = "a".repeat(64);
 const PNG_1X1 = Buffer.from(
@@ -131,6 +133,16 @@ async function mockBridge(expectedToken = TOKEN) {
 
 test("DSH URL only accepts loopback HTTP", () => {
   assert.equal(normalizeDshBaseUrl("http://127.0.0.1:3080").origin, "http://127.0.0.1:3080");
+  assert.deepEqual(dshTrustedOrigins("http://127.0.0.1:3080"), [
+    "http://127.0.0.1:3080",
+    "http://localhost:3080",
+    "http://[::1]:3080",
+  ]);
+  assert.deepEqual(dshTrustedOrigins("http://localhost:3080"), [
+    "http://localhost:3080",
+    "http://127.0.0.1:3080",
+    "http://[::1]:3080",
+  ]);
   assert.throws(() => normalizeDshBaseUrl("https://127.0.0.1:3080"), /loopback HTTP/);
   assert.throws(() => normalizeDshBaseUrl("http://192.168.1.10:3080"), /loopback HTTP/);
   assert.throws(() => normalizeDshBaseUrl("http://user:pass@localhost:3080"), /loopback HTTP/);
@@ -415,6 +427,35 @@ test("DSH session yields the injector lock when the tray claims it", async (t) =
   await assert.rejects(() => fs.readFile(lockPath), {
     code: "ENOENT",
   });
+});
+
+test("DSH video media permits localhost and IPv6 loopback origins on the same port", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "bc-dsh-origin-"));
+  const videoPath = path.join(root, "background.mp4");
+  await fs.writeFile(videoPath, mp4Fixture("ORIGIN"));
+  const media = new MediaServerController({
+    trustedOrigins: dshTrustedOrigins("http://127.0.0.1:3080"),
+  });
+  t.after(async () => {
+    await media.close();
+    await fs.rm(root, { recursive: true, force: true });
+  });
+  const staged = await media.stage(videoPath);
+  assert.ok(staged);
+
+  for (const origin of ["http://localhost:3080", "http://[::1]:3080"]) {
+    const response = await fetch(staged.srcUrl, {
+      headers: { Origin: origin, Range: "bytes=0-1" },
+    });
+    assert.equal(response.status, 206);
+    assert.equal(response.headers.get("access-control-allow-origin"), origin);
+    assert.equal((await response.arrayBuffer()).byteLength, 2);
+  }
+
+  const denied = await fetch(staged.srcUrl, {
+    headers: { Origin: "http://192.168.1.10:3080", Range: "bytes=0-1" },
+  });
+  assert.equal(denied.status, 403);
 });
 
 test("DSH session rolls disk state back when the bridge disappears", async (t) => {

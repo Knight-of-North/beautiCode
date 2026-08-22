@@ -53,6 +53,19 @@ export function normalizeDshBaseUrl(value: string): URL {
   return url;
 }
 
+export function dshTrustedOrigins(value: string | URL): string[] {
+  const baseUrl = normalizeDshBaseUrl(String(value));
+  const port = baseUrl.port ? `:${baseUrl.port}` : "";
+  return [
+    ...new Set([
+      baseUrl.origin,
+      new URL(`http://127.0.0.1${port}`).origin,
+      new URL(`http://localhost${port}`).origin,
+      new URL(`http://[::1]${port}`).origin,
+    ]),
+  ];
+}
+
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

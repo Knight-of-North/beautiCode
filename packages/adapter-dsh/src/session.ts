@@ -16,7 +16,7 @@ import {
   type HostSessionStatus,
   type SavedThemeInfo,
 } from "@beauticode/core";
-import { DshHostApplier, normalizeDshBaseUrl } from "./bridge.js";
+import { DshHostApplier, dshTrustedOrigins, normalizeDshBaseUrl } from "./bridge.js";
 import { DSH_HOST_DESCRIPTOR } from "./host-descriptor.js";
 import { acquireDshInjectorLock } from "./injector-lock.js";
 import { ensureBridgeToken } from "./token.js";
@@ -97,7 +97,7 @@ export class DshSession implements HostSession {
     });
     this.media = new MediaServerController({
       enabled: true,
-      trustedOrigins: [this.baseUrl.origin],
+      trustedOrigins: dshTrustedOrigins(this.baseUrl),
     });
     this.onError = opts.onError ?? null;
     this.onStatus = opts.onStatus ?? null;

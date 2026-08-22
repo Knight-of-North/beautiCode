@@ -139,6 +139,11 @@ export async function stageDshPlugin(destRoot = defaultStageDir(), opts = {}) {
   if (opts.build !== false) runBuild();
   await fsp.rm(destRoot, { recursive: true, force: true });
   await fsp.mkdir(destRoot, { recursive: true });
+  const licenseSource = path.join(repoRoot, "LICENSE");
+  if (!fs.existsSync(licenseSource)) {
+    throw new Error("Missing repository LICENSE for npm package.");
+  }
+  await fsp.copyFile(licenseSource, path.join(destRoot, "LICENSE"));
   for (const name of PLUGIN_FILES) {
     const source = path.join(pluginSrc, name);
     if (!fs.existsSync(source)) {

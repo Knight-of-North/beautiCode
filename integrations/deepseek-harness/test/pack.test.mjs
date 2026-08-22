@@ -19,8 +19,10 @@ test("staged npm plugin is a self-contained DSH bundle with a vendored engine", 
   assert.equal(await fs.readFile(path.join(dest, "cordis.patch.yml"), "utf8").then((text) => text.includes("beauticode-bridge")), true);
   const adapter = path.join(dest, "vendor", "adapter-dsh", "index.js");
   const canvas = path.join(dest, "themes", "internal-beyond", "bg-canvas-4k.png");
+  const license = path.join(dest, "LICENSE");
   await fs.access(adapter);
   await fs.access(canvas);
+  assert.match(await fs.readFile(license, "utf8"), /MIT License/);
   const session = await import(pathToFileURL(adapter).href);
   assert.equal(typeof session.DshSession, "function");
   await fs.rm(dest, { recursive: true, force: true });
