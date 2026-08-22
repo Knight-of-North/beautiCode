@@ -476,6 +476,94 @@ test("live video payload uses a detached runtime copy outside active", async () 
   await fs.rm(root, { recursive: true, force: true });
 });
 
+test("apply transaction retries one cold first-frame verify failure for video", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "bc-retry-"));
+  const fixtures = path.join(root, "fixtures");
+  await fs.mkdir(fixtures);
+  const { imagePath, videoPath } = await writeFixtures(fixtures);
+  const store = new BackgroundStore({ root: path.join(root, "data") });
+  await store.init();
+
+  const applies = [];
+  let verifyCalls = 0;
+  const host = {
+    async apply(payload) {
+      applies.push(payload);
+    },
+    async verify() {
+      verifyCalls += 1;
+      if (verifyCalls === 1) {
+        return {
+          status: "fail",
+          reason:
+            "等待视频首帧超时；mediaError=none；readyState=0；networkState=0",
+        };
+      }
+      return { status: "pass", reason: "acknowledged" };
+    },
+  };
+  const media = new MediaServerController();
+  const tx = new ApplyTransaction({ store, media, host });
+
+  const result = await tx.run({ type: "video", imagePath, videoPath });
+  assert.equal(result.ok, true);
+  assert.equal(verifyCalls, 2);
+  // First apply for the stalled cold attempt, second for the warmed retry.
+  assert.equal(applies.length, 2);
+  assert.equal(applies[0].generation, applies[1].generation);
+  assert.ok(result.ok && "rendererVerifyRetry" in result.timings.phases);
+  assert.ok("hostApplyRetry" in result.timings.phases);
+
+  await media.close();
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test("apply transaction does not retry non-warmup video verify failures", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "bc-noretry-"));
+  const fixtures = path.join(root, "fixtures");
+  await fs.mkdir(fixtures);
+  const { imagePath, videoPath } = await writeFixtures(fixtures);
+  const store = new BackgroundStore({ root: path.join(root, "data") });
+  await store.init();
+  await store.commitImport({ type: "image", imagePath });
+
+  const applies = [];
+  const verifyGenerations = [];
+  const host = {
+    async apply(payload) {
+      applies.push(payload);
+    },
+    async verify(expected) {
+      verifyGenerations.push(expected.generation);
+      return {
+        status: "fail",
+        reason: "MP4 加载或解码失败；mediaError=MEDIA_ERR_DECODE",
+      };
+    },
+  };
+  const media = new MediaServerController();
+  const tx = new ApplyTransaction({ store, media, host });
+
+  const result = await tx.run({ type: "video", imagePath, videoPath });
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.rolledBack, true);
+  // The rollback restore performs its own verify, so count per generation:
+  // the failed new generation must be verified exactly once (no retry).
+  const newGeneration = result.ok ? null : applies[0].generation;
+  assert.equal(
+    verifyGenerations.filter((generation) => generation === newGeneration)
+      .length,
+    1,
+  );
+  assert.ok(!("rendererVerifyRetry" in result.timings.phases));
+  // Two applies: the failed attempt plus the rollback restore, no retry.
+  assert.equal(applies.length, 2);
+  assert.notEqual(applies[0].generation, applies[1].generation);
+
+  await media.close();
+  await fs.rm(root, { recursive: true, force: true });
+});
+
 test("busy mutex rejects concurrent apply", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "bc-busy-"));
   const fixtures = path.join(root, "fixtures");

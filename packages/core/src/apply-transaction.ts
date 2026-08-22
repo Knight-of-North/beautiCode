@@ -38,6 +38,18 @@ export interface ApplyTransactionOptions {
   offline?: boolean;
 }
 
+// Cold-first-access symptoms reported by the renderer while the OS is still
+// scanning or caching a large local video. The stalled attempt itself warms
+// the file and media pipeline, so one immediate retry usually renders.
+const RETRYABLE_RENDER_VERIFY_PATTERN = /首帧|Range 探针/;
+
+function isRetryableRenderVerifyFailure(
+  status: string,
+  reason: string | undefined | null,
+): boolean {
+  return status === "fail" && typeof reason === "string" && RETRYABLE_RENDER_VERIFY_PATTERN.test(reason);
+}
+
 /**
  * Minimal baseline only — live Codex path injects packages/adapter-codex
  * renderer/background.css (full-window main-surface transparency).
@@ -185,7 +197,7 @@ export class ApplyTransaction {
         );
         runtimeVideoPath = payload.video?.localPath ?? null;
         await measure("hostApply", () => this.host!.apply(payload));
-        const verify = await measure("rendererVerify", () =>
+        let verify = await measure("rendererVerify", () =>
           this.host!.verify(
             {
               generation: manifest.generation,
@@ -194,6 +206,22 @@ export class ApplyTransaction {
             { deadlineMs: this.verifyDeadlineMs },
           ),
         );
+        if (
+          verify.status !== "pass" &&
+          manifest.background?.type === "video" &&
+          isRetryableRenderVerifyFailure(verify.status, verify.reason)
+        ) {
+          await measure("hostApplyRetry", () => this.host!.apply(payload));
+          verify = await measure("rendererVerifyRetry", () =>
+            this.host!.verify(
+              {
+                generation: manifest.generation,
+                media: manifest.background?.type ?? "clear",
+              },
+              { deadlineMs: this.verifyDeadlineMs },
+            ),
+          );
+        }
         if (verify.status !== "pass") {
           await measure("rollback", () => this.#rollback(snapshot!, staged));
           staged = null;

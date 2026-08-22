@@ -291,6 +291,42 @@ export async function validateVideoFile(
   };
 }
 
+const WARM_VIDEO_HEAD_BYTES = 2 * 1024 * 1024;
+const WARM_VIDEO_TAIL_BYTES = 4 * 1024 * 1024;
+
+/**
+ * Best-effort warm read of the byte ranges a cold <video> pipeline requests
+ * first: the container header plus the file tail where non-faststart MP4s
+ * keep their moov atom. On a fresh machine the first read of a large local
+ * video can stall in a synchronous antivirus scan long past the renderer
+ * verify deadline; touching these regions during staging keeps that cost
+ * outside the timed apply. Warmup must never block or fail an import.
+ */
+export async function warmVideoFileReads(filePath: string): Promise<void> {
+  try {
+    const handle = await fs.open(filePath, "r");
+    try {
+      const size = (await handle.stat()).size;
+      const headLength = Math.min(WARM_VIDEO_HEAD_BYTES, size);
+      const tailLength = Math.min(
+        WARM_VIDEO_TAIL_BYTES,
+        Math.max(0, size - headLength),
+      );
+      const buffer = Buffer.allocUnsafe(Math.max(headLength, tailLength, 1));
+      if (headLength > 0) {
+        await handle.read(buffer, 0, headLength, 0);
+      }
+      if (tailLength > 0) {
+        await handle.read(buffer, 0, tailLength, size - tailLength);
+      }
+    } finally {
+      await handle.close();
+    }
+  } catch {
+    /* Advisory only; correctness of the import does not depend on warmup. */
+  }
+}
+
 /** Basename-only guard for names stored inside active/staging trees. */
 export function assertSafeBasename(name: string, label: string): string {
   if (typeof name !== "string" || name.length < 1 || name.length > 128) {

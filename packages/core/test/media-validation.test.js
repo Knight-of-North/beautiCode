@@ -12,6 +12,7 @@ import {
   MediaValidationError,
   validateImageFile,
   validateVideoFile,
+  warmVideoFileReads,
 } from "../dist/media-validation.js";
 
 function mp4Fixture(marker = "AAAA") {
@@ -154,4 +155,23 @@ test("assertSafeBasename rejects traversal", () => {
   assert.throws(() => assertSafeBasename("aux.jpg", "image"), MediaValidationError);
   assert.throws(() => assertSafeBasename("poster.png.", "image"), MediaValidationError);
   assert.throws(() => assertSafeBasename("poster.png:ads", "image"), MediaValidationError);
+});
+
+test("warmVideoFileReads is best-effort across sizes and missing files", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "bc-warm-"));
+  try {
+    const small = path.join(root, "small.mp4");
+    await fs.writeFile(small, Buffer.alloc(64, 7));
+    await warmVideoFileReads(small);
+
+    // Larger than head (2 MiB) + tail (4 MiB) so both ranged reads run.
+    const big = path.join(root, "big.mp4");
+    await fs.writeFile(big, Buffer.alloc(7 * 1024 * 1024, 9));
+    await warmVideoFileReads(big);
+
+    // A missing file must be swallowed, never block an import.
+    await warmVideoFileReads(path.join(root, "missing.mp4"));
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
 });

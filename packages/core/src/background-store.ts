@@ -15,6 +15,7 @@ import {
   MediaValidationError,
   validateImageFile,
   validateVideoFile,
+  warmVideoFileReads,
 } from "./media-validation.js";
 import {
   copyFileAtomic,
@@ -364,6 +365,10 @@ export class BackgroundStore {
       if (!source) return null;
       if (isLocalBackgroundSource(manifest.background)) {
         await validateVideoFile(source, { mode: "fast" });
+        // Zero-copy local videos stream straight from the original path, so
+        // the first range reads happen under the renderer verify deadline.
+        // Warm the header and moov-tail before that clock starts.
+        await warmVideoFileReads(source);
         return source;
       }
 
