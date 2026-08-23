@@ -87,6 +87,8 @@ export async function downloadToFile(url, dest, { maxBytes, expectedOrigin, onPr
   }
   await fsp.mkdir(path.dirname(dest), { recursive: true });
   let size = 0;
+  let lastReportedAt = 0;
+  let lastReportedBytes = 0;
   const limiter = new Transform({
     transform(chunk, _enc, callback) {
       size += chunk.length;
@@ -94,8 +96,22 @@ export async function downloadToFile(url, dest, { maxBytes, expectedOrigin, onPr
         callback(new Error("Skin media download exceeded the size limit."));
         return;
       }
-      onProgress?.(size, Number.isFinite(length) ? length : 0);
+      // Throttle progress frames: one every 250 ms or every 1 MiB, whichever
+      // comes first. A chunk-level frame floods the NDJSON stream on large
+      // videos and forces a DOM write per chunk in the browser client.
+      const now = Date.now();
+      if (now - lastReportedAt >= 250 || size - lastReportedBytes >= 1024 * 1024) {
+        lastReportedAt = now;
+        lastReportedBytes = size;
+        onProgress?.(size, Number.isFinite(length) ? length : 0);
+      }
       callback(null, chunk);
+    },
+    flush(callback) {
+      if (size !== lastReportedBytes) {
+        onProgress?.(size, Number.isFinite(length) ? length : 0);
+      }
+      callback();
     },
   });
   await pipeline(Readable.fromWeb(response.body), limiter, fs.createWriteStream(dest));
@@ -110,6 +126,19 @@ function extensionOf(url, fallback) {
     /* use fallback */
   }
   return fallback;
+}
+
+// Theme names are persisted via saveCurrentTheme, which rejects characters that
+// are illegal in filenames. Normalize gallery skin display names the same way
+// local filenames are normalized so a name like "Cyberpunk: Neon" still installs.
+function normalizeThemeName(value, fallback = "主题") {
+  const name = String(value ?? "")
+    .replace(/[<>:"/\\|?*]/g, " ")
+    .replace(/[\u0000-\u001f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 80);
+  return name || fallback;
 }
 
 // The /image endpoint is extensionless; derive the on-disk suffix from the
@@ -284,8 +313,12 @@ export function createGalleryHandlers({ dataRoot, actions }) {
         // import. importTheme applies-and-saves atomically; the media is copied
         // before it returns, so tmpDir is safe to remove in finally.
         write({ phase: "apply" });
+        // The apply/save step is atomic and cannot be interrupted; refuse to
+        // start it when the client already went away so a disconnected UI does
+        // not still commit and apply a background after the controls recovered.
+        if (clientAbort.signal.aborted) throw new Error("客户端已断开。");
         const imported = await importTheme({
-          name: String(skin.name || id).slice(0, 80),
+          name: normalizeThemeName(skin.name || id),
           imagePath,
           ...(videoPath ? { videoPath } : {}),
           ...(skin.effects ? { effects: skin.effects } : {}),

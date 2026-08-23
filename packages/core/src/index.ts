@@ -15,3 +15,4 @@ export * from "./error-message.js";
 export * from "./background-store.js";
 export * from "./bundled-gallery.js";
 export * from "./apply-transaction.js";
+export * from "./process-liveness.js";

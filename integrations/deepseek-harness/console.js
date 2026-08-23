@@ -432,7 +432,9 @@ body:not([data-ds-dark-theme]) #beauticode-console-pop{background:#f3f0e9;color:
     event.stopPropagation();
     setOpen(false);
     if (window.BeauticodeGallery) {
-      void window.BeauticodeGallery.open();
+      window.BeauticodeGallery.open().catch((error) => {
+        showMessage(error instanceof Error ? error.message : String(error));
+      });
       return;
     }
     showMessage("皮肤中心脚本尚未加载。");

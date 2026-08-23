@@ -188,12 +188,13 @@ function Ensure-WebPackageDep {
   $linkSpec = "link:" + ($PluginRoot -replace "\\", "/")
   $deps = $json.dependencies
   # Swap any legacy scoped dep (npx-installed copy) for the installer's link.
+  $hadLegacy = $deps.PSObject.Properties.Name -contains $legacyPluginName
   $deps.PSObject.Properties.Remove($legacyPluginName)
   $current = $null
   if ($deps.PSObject.Properties.Name -contains $pluginName) {
     $current = [string]$deps.$pluginName
   }
-  if ($current -eq $linkSpec) { return }
+  if ($current -eq $linkSpec -and -not $hadLegacy) { return }
   $deps | Add-Member -NotePropertyName $pluginName -NotePropertyValue $linkSpec -Force
   # Windows PowerShell 5.1 Set-Content -Encoding UTF8 writes a BOM.
   # DSH reads the profile manifest with JSON.parse and rejects that.

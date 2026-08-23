@@ -1543,7 +1543,9 @@ html[data-bc-fish="true"] #root{opacity:0!important;visibility:hidden!important;
         activePayload === committedPayload &&
         renderPhase === "ready"
       ) {
-        await acknowledgeRender(committedPayload, true, true);
+        await acknowledgeRender(committedPayload, true, true, null, {
+          videoReady: mountedCurrentSlot()?.dataset.bcVideoReady === "true",
+        });
       }
     } else {
       playbackBlocked = false;
@@ -1598,7 +1600,11 @@ html[data-bc-fish="true"] #root{opacity:0!important;visibility:hidden!important;
       // A heartbeat is observational, not a second render verdict. Playback can
       // briefly pause while Chromium changes modes or refills an 8K buffer; do
       // not downgrade an already-rendered generation or fail a pending one.
-<      void acknowledgeRender(committedPayload, true, true).catch(() => {});
+      // Report the real first-frame state: a committed video that still only
+      // shows its poster must not be acked as video-ready (see settleCommittedVideo).
+      void acknowledgeRender(committedPayload, true, true, null, {
+        videoReady: slot.dataset.bcVideoReady === "true",
+      }).catch(() => {});
     }
   }, 1_000);
 })();

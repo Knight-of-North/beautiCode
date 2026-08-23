@@ -298,14 +298,26 @@ async function sameLinkTarget(link, dest) {
   return false;
 }
 
+// A dangling symlink has a live directory entry even though fs.existsSync
+// (which follows the link) reports false. Use lstat so leftover plugin links
+// are detected and cleaned instead of making fsp.symlink fail with EEXIST.
+async function entryExists(p) {
+  try {
+    await fsp.lstat(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function linkPluginIntoProfile(webProfile, dest) {
   const link = pluginLinkPath(webProfile);
   const legacy = legacyPluginLinkPath(webProfile);
-  if (fs.existsSync(legacy)) {
+  if (await entryExists(legacy)) {
     await fsp.rm(legacy, { recursive: true, force: true });
   }
   await fsp.mkdir(path.dirname(link), { recursive: true });
-  if (fs.existsSync(link)) {
+  if (await entryExists(link)) {
     if (await sameLinkTarget(link, dest)) return;
     await fsp.rm(link, { recursive: true, force: true });
   }
@@ -403,7 +415,7 @@ async function uninstall(opts) {
     removed.push("web package.json");
   }
   for (const link of [pluginLinkPath(webProfile), legacyPluginLinkPath(webProfile)]) {
-    if (fs.existsSync(link)) {
+    if (await entryExists(link)) {
       await fsp.rm(link, { recursive: true, force: true });
       removed.push(link);
     }

@@ -52,19 +52,25 @@ function argValue(name) {
   return value && !value.startsWith("--") ? value : null;
 }
 
+function badRequest(message) {
+  const error = new Error(message);
+  error.statusCode = 400;
+  return error;
+}
+
 function parseImportMode(value) {
   if (value == null) return undefined;
   if (value === "managed" || value === "local") return value;
-  throw new Error("source 必须是 managed 或 local。");
+  throw badRequest("source 必须是 managed 或 local。");
 }
 
 function parseThemeApplyInput(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("input 必须是图片或视频导入参数。");
+    throw badRequest("input 必须是图片或视频导入参数。");
   }
   if (value.type === "image") {
     if (typeof value.imagePath !== "string" || !value.imagePath) {
-      throw new Error("图片主题必须提供 imagePath。");
+      throw badRequest("图片主题必须提供 imagePath。");
     }
     const input = {
       type: "image",
@@ -78,7 +84,7 @@ function parseThemeApplyInput(value) {
   }
   if (value.type === "video") {
     if (typeof value.videoPath !== "string" || !value.videoPath) {
-      throw new Error("视频主题必须提供 videoPath。");
+      throw badRequest("视频主题必须提供 videoPath。");
     }
     const input = {
       type: "video",
@@ -91,13 +97,13 @@ function parseThemeApplyInput(value) {
     if (value.startAt != null) {
       const startAt = Number(value.startAt);
       if (!Number.isFinite(startAt) || startAt < 0) {
-        throw new Error("startAt 必须是非负数字（秒）。");
+        throw badRequest("startAt 必须是非负数字（秒）。");
       }
       input.startAt = startAt;
     }
     return input;
   }
-  throw new Error("input.type 必须是 image 或 video。");
+  throw badRequest("input.type 必须是 image 或 video。");
 }
 
 const hostKind = argValue("--host") ?? "codex";

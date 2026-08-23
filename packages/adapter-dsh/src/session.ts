@@ -237,7 +237,10 @@ export class DshSession implements HostSession {
           : undefined,
       );
       if (result.ok) {
-        this.activeThemeId = saved.theme?.type === "video" ? saved.theme.id : null;
+        // Retain the saved theme id for image themes too: status.themeId marks
+        // the current selection in the console, and video-position tracking is
+        // already gated on hasVideo / "Not a video theme" downstream.
+        this.activeThemeId = saved.theme?.id ?? null;
         this.lastProgressWriteSec = -1;
         if (input.type === "clear") {
           this.fishMode = false;
@@ -403,12 +406,8 @@ export class DshSession implements HostSession {
       }
     }
     const theme = await this.store.saveCurrentTheme(name, { videoPositionSec });
-    if (theme.type === "video") {
-      this.activeThemeId = theme.id;
-      this.lastProgressWriteSec = -1;
-    } else {
-      this.activeThemeId = null;
-    }
+    this.activeThemeId = theme.id;
+    this.lastProgressWriteSec = -1;
     return theme;
   }
 
@@ -430,7 +429,7 @@ export class DshSession implements HostSession {
       const saved = await this.store.loadSavedTheme(themeId);
       const result = await this.apply(saved.input);
       if (result.ok) {
-        this.activeThemeId = saved.input.type === "video" ? saved.themeId : null;
+        this.activeThemeId = saved.themeId;
         this.lastProgressWriteSec = -1;
       }
       return result;

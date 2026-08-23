@@ -87,6 +87,11 @@ test("local image and video imports keep original paths without media copies", a
     const fixtures = path.join(root, "fixtures");
     await fs.mkdir(fixtures);
     const { imagePath, videoPath } = await writeFixtures(fixtures);
+    // validateImageFile/validateVideoFile resolve paths via fs.realpath, which
+    // on macOS expands /var -> /private/var (os.tmpdir() lives under /var).
+    // Compare against the resolved paths so these assertions hold cross-platform.
+    const realImagePath = await fs.realpath(imagePath);
+    const realVideoPath = await fs.realpath(videoPath);
     const store = new BackgroundStore({ root: path.join(root, "data") });
 
     const imageManifest = await store.commitImport({
@@ -96,15 +101,15 @@ test("local image and video imports keep original paths without media copies", a
     });
     assert.deepEqual(imageManifest.background?.source, {
       kind: "local",
-      path: imagePath,
+      path: realImagePath,
     });
     assert.equal(imageManifest.background?.image, undefined);
-    assert.equal(await store.activeImagePath(), imagePath);
+    assert.equal(await store.activeImagePath(), realImagePath);
     assert.deepEqual(await fs.readdir(store.paths.activeDir), ["background.json"]);
     const savedImage = await store.saveCurrentTheme("Local image");
     const loadedImage = await store.loadSavedTheme(savedImage.id);
     assert.equal(loadedImage.input.source, "local");
-    assert.equal(loadedImage.input.imagePath, imagePath);
+    assert.equal(loadedImage.input.imagePath, realImagePath);
 
     const manifest = await store.commitImport({
       type: "video",
@@ -114,11 +119,11 @@ test("local image and video imports keep original paths without media copies", a
 
     assert.deepEqual(manifest.background?.source, {
       kind: "local",
-      path: videoPath,
+      path: realVideoPath,
     });
     assert.equal(manifest.background?.video, undefined);
-    assert.equal(await store.activeVideoPath(), videoPath);
-    assert.equal(await store.prepareRuntimeVideo(manifest), videoPath);
+    assert.equal(await store.activeVideoPath(), realVideoPath);
+    assert.equal(await store.prepareRuntimeVideo(manifest), realVideoPath);
     assert.deepEqual(
       (await fs.readdir(store.paths.activeDir)).sort(),
       ["background.json", "poster.png"],
@@ -128,7 +133,7 @@ test("local image and video imports keep original paths without media copies", a
     const loaded = await store.loadSavedTheme(saved.id);
     assert.equal(loaded.input.type, "video");
     assert.equal(loaded.input.source, "local");
-    assert.equal(loaded.input.videoPath, videoPath);
+    assert.equal(loaded.input.videoPath, realVideoPath);
     const dataFiles = await fs.readdir(path.join(root, "data"), {
       recursive: true,
     });

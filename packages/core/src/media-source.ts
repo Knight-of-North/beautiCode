@@ -1,9 +1,11 @@
 import path from "node:path";
+import { assertSafeBasename } from "./media-validation.js";
 import type { BackgroundMedia, MediaSource } from "./types.js";
 
 /** Resolve a manifest source against the directory that owns managed files. */
 export function resolveMediaSource(source: MediaSource, ownerDir: string): string {
   if (source.kind === "local") return path.resolve(source.path);
+  assertSafeBasename(source.file, "background.source.file");
   return path.join(ownerDir, source.file);
 }
 

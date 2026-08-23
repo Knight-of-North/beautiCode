@@ -20,6 +20,10 @@ const NATIVE_PICKER_UNAVAILABLE = "native_picker_unavailable";
 const NATIVE_PICKER_REQUIRED = "native_picker_required";
 const PICKER_REQUEST_ABORTED = "picker_request_aborted";
 const IMPORT_TIMING_LOG = "import-timing.jsonl";
+// /reapply runs a full apply transaction (import + stage + verify + commit),
+// which has no total deadline of its own; give it headroom beyond the 30s that
+// the two-verify video path can already approach (~26s).
+const REAPPLY_TIMEOUT_MS = 60_000;
 
 function elapsedMs(startedAt) {
   return Math.round((performance.now() - startedAt) * 10) / 10;
@@ -369,7 +373,7 @@ export function createBeauticodeUi({
         method: "POST",
         path: "/reapply",
         body: {},
-        timeoutMs: 30_000,
+        timeoutMs: REAPPLY_TIMEOUT_MS,
       });
     }
     if (!(await canReachBridge(options.baseUrl))) return;
@@ -379,7 +383,7 @@ export function createBeauticodeUi({
         method: "POST",
         path: "/reapply",
         body: {},
-        timeoutMs: 30_000,
+        timeoutMs: REAPPLY_TIMEOUT_MS,
       });
     }
     return resolved.session.reapply();

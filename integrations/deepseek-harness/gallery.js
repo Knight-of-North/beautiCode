@@ -108,37 +108,48 @@ body:not([data-ds-dark-theme]) #beauticode-gallery .bcg-panel{background:#fff;co
 
   async function load() {
     msg.textContent = "正在读取目录…";
-    const params = new URLSearchParams();
-    if (queryInput.value.trim()) params.set("q", queryInput.value.trim());
-    if (typeSelect.value) params.set("type", typeSelect.value);
-    const data = await request(`/__beauticode/ui/gallery/catalog?${params}`);
-    centerUrl = data.url || centerUrl;
-    grid.innerHTML = (data.skins || [])
-      .filter((skin) => SKIN_ID.test(String(skin.id ?? "")))
-      .map(
-        (skin) =>
-          `<button type="button" class="bcg-card" data-id="${escapeAttr(skin.id)}">` +
-          `<img alt="" src="${escapeAttr(centerUrl)}/api/skins/${escapeAttr(skin.id)}/card">` +
-          `<span>${escapeText(skin.name)}${skin.type === "video" ? " · 视频" : ""}</span></button>`,
-      )
-      .join("");
-    msg.textContent = data.skins?.length ? "" : "目录是空的。";
-    foot.innerHTML = centerUrl
-      ? `上传与审核在 <a href="${escapeAttr(centerUrl)}" target="_blank" rel="noreferrer">皮肤中心网站</a>。安装会下载到本机后再应用。`
-      : "未配置皮肤中心地址。在插件的 skin-center.json 或环境变量 BEAUTICODE_SKIN_CENTER 里填入你的域名。";
+    try {
+      const params = new URLSearchParams();
+      if (queryInput.value.trim()) params.set("q", queryInput.value.trim());
+      if (typeSelect.value) params.set("type", typeSelect.value);
+      const data = await request(`/__beauticode/ui/gallery/catalog?${params}`);
+      centerUrl = data.url || centerUrl;
+      grid.innerHTML = (data.skins || [])
+        .filter((skin) => SKIN_ID.test(String(skin.id ?? "")))
+        .map(
+          (skin) =>
+            `<button type="button" class="bcg-card" data-id="${escapeAttr(skin.id)}">` +
+            `<img alt="" src="${escapeAttr(centerUrl)}/api/skins/${escapeAttr(skin.id)}/card">` +
+            `<span>${escapeText(skin.name)}${skin.type === "video" ? " · 视频" : ""}</span></button>`,
+        )
+        .join("");
+      msg.textContent = data.skins?.length ? "" : "目录是空的。";
+      foot.innerHTML = centerUrl
+        ? `上传与审核在 <a href="${escapeAttr(centerUrl)}" target="_blank" rel="noreferrer">皮肤中心网站</a>。安装会下载到本机后再应用。`
+        : "未配置皮肤中心地址。在插件的 skin-center.json 或环境变量 BEAUTICODE_SKIN_CENTER 里填入你的域名。";
+    } catch (error) {
+      grid.innerHTML = "";
+      msg.textContent = error instanceof Error ? error.message : String(error);
+    }
   }
 
   async function open() {
     host.hidden = false;
-    const config = await request("/__beauticode/ui/gallery/config");
-    centerUrl = config.url || "";
-    if (!config.enabled) {
+    try {
+      const config = await request("/__beauticode/ui/gallery/config");
+      centerUrl = config.url || "";
+      if (!config.enabled) {
+        grid.innerHTML = "";
+        msg.textContent = "尚未配置皮肤中心地址。";
+        foot.textContent = "设置 BEAUTICODE_SKIN_CENTER，或在 skin-center.json 填写站点 URL。";
+        return;
+      }
+      await load();
+    } catch (error) {
       grid.innerHTML = "";
-      msg.textContent = "尚未配置皮肤中心地址。";
-      foot.textContent = "设置 BEAUTICODE_SKIN_CENTER，或在 skin-center.json 填写站点 URL。";
-      return;
+      msg.textContent = error instanceof Error ? error.message : String(error);
+      throw error;
     }
-    await load();
   }
 
   function close() {
