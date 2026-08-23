@@ -6,7 +6,7 @@
 - License: MIT, Copyright (c) 2026 DeepSeek
 - Upstream project: https://github.com/deepseek-ai/deepseek-harness
 - Distribution: beautiCode no longer ships a private DSH runtime. Users install
-  DSH themselves and add the `@beauticode/dsh-plugin` files from
+  DSH themselves and add the `beauticode-dsh` plugin files from
   `integrations/deepseek-harness`.
 
 ## Fei-Away/Codex-Dream-Skin (media server lineage)

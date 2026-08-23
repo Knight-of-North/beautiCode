@@ -233,17 +233,30 @@ test("install-dsh-plugin wires a missing DSH home and can uninstall", requiresWi
 
     const web = path.join(home, "profiles", "web");
     fs.mkdirSync(web, { recursive: true });
+    // Start from the pre-1.0.1 installer / npx state: both dep names point at
+    // another copy and the legacy scoped junction already exists.
     fs.writeFileSync(
       path.join(web, "package.json"),
       JSON.stringify({
         name: "dsh-profile-web",
         private: true,
-        dependencies: {},
+        dependencies: {
+          "beauticode-dsh": "link:C:/elsewhere/beauticode-dsh",
+          "@beauticode/dsh-plugin": "link:C:/elsewhere/beauticode-dsh",
+        },
         dsh: { profile: { bundles: ["@deepseek-ai/dsh-base"] } },
       }),
       "utf8",
     );
     fs.writeFileSync(path.join(web, "cordis.patch.yml"), "[]\n", "utf8");
+    fs.mkdirSync(path.join(web, "node_modules", "@beauticode", "dsh-plugin"), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(web, "node_modules", "@beauticode", "dsh-plugin", "index.mjs"),
+      "export {}\n",
+      "utf8",
+    );
     const migrate = spawnSync(
       powerShellExecutable,
       [
@@ -261,15 +274,24 @@ test("install-dsh-plugin wires a missing DSH home and can uninstall", requiresWi
     );
     assert.equal(migrate.status, 0, migrate.stderr || migrate.stdout);
     const webPatch = fs.readFileSync(path.join(web, "cordis.patch.yml"), "utf8");
-    assert.match(webPatch, /@beauticode\/dsh-plugin/);
+    assert.match(webPatch, /name:\s*'?beauticode-dsh'?/);
+    assert.doesNotMatch(webPatch, /@beauticode\/dsh-plugin/);
     assert.equal(fs.existsSync(path.join(home, "cordis.patch.yml")), false);
     const pkgBytes = fs.readFileSync(path.join(web, "package.json"));
     assert.notEqual(pkgBytes[0], 0xef, "profile package.json must not have a UTF-8 BOM");
-    JSON.parse(pkgBytes.toString("utf8"));
+    const pkg = JSON.parse(pkgBytes.toString("utf8"));
+    assert.equal(pkg.dependencies["beauticode-dsh"], `link:${pluginRoot.replace(/\\/g, "/")}`);
+    assert.equal(pkg.dependencies["@beauticode/dsh-plugin"], undefined);
     assert.ok(
       fs.existsSync(
-        path.join(web, "node_modules", "@beauticode", "dsh-plugin", "index.mjs"),
+        path.join(web, "node_modules", "beauticode-dsh", "index.mjs"),
       ),
+    );
+    assert.equal(
+      fs.existsSync(
+        path.join(web, "node_modules", "@beauticode", "dsh-plugin"),
+      ),
+      false,
     );
 
     const remove = spawnSync(
@@ -290,7 +312,7 @@ test("install-dsh-plugin wires a missing DSH home and can uninstall", requiresWi
     );
     assert.equal(remove.status, 0, remove.stderr || remove.stdout);
     assert.equal(
-      fs.existsSync(path.join(web, "node_modules", "@beauticode", "dsh-plugin")),
+      fs.existsSync(path.join(web, "node_modules", "beauticode-dsh")),
       false,
     );
   } finally {

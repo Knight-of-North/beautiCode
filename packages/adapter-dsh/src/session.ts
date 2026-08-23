@@ -198,7 +198,35 @@ export class DshSession implements HostSession {
         themeName
           ? {
               beforeFinalize: async () => {
-                saved.theme = await this.store.saveCurrentTheme(themeName);
+                // Persist the initial seek so a restore before the periodic
+                // progress writer runs still resumes at the requested position.
+                let videoPositionSec: number | null = null;
+                if (input.type === "video") {
+                  if (this.host) {
+                    try {
+                      const position = await this.host.getPlaybackPosition();
+                      if (
+                        position.ok &&
+                        position.hasVideo &&
+                        Number.isFinite(position.currentTime)
+                      ) {
+                        videoPositionSec = position.currentTime;
+                      }
+                    } catch {
+                      /* fall back to input.startAt below */
+                    }
+                  }
+                  const startAt =
+                    typeof input.startAt === "number" && Number.isFinite(input.startAt)
+                      ? input.startAt
+                      : null;
+                  if (videoPositionSec == null && startAt != null) {
+                    videoPositionSec = Math.max(0, startAt);
+                  }
+                }
+                saved.theme = await this.store.saveCurrentTheme(themeName, {
+                  ...(videoPositionSec != null ? { videoPositionSec } : {}),
+                });
               },
               onRollback: async () => {
                 if (saved.theme) {
@@ -358,6 +386,7 @@ export class DshSession implements HostSession {
       fish: this.fishMode,
       muted: this.videoMuted,
       tone: this.backgroundTone,
+      themeId: this.activeThemeId,
     };
   }
 

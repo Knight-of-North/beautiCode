@@ -241,6 +241,9 @@ function publicTheme(theme) {
     name: theme.name,
     type: theme.type,
     savedAt: theme.savedAt,
+    ...(typeof theme.sourceMode === "string"
+      ? { sourceMode: theme.sourceMode }
+      : {}),
     ...(theme.bundled ? { bundled: true } : {}),
     ...(typeof theme.videoPositionSec === "number"
       ? { videoPositionSec: theme.videoPositionSec }

@@ -12,6 +12,9 @@ const SKIN_ID = /^skin-[a-z0-9]{8,40}$/;
 const MAX_IMAGE_BYTES = 18 * 1024 * 1024;
 const MAX_VIDEO_BYTES = 800 * 1024 * 1024;
 const INSTALL_TIMEOUT_MS = 30 * 60 * 1000;
+// Small catalog/metadata requests get a tight budget; the media download uses
+// INSTALL_TIMEOUT_MS so a large video on a slow link can still finish.
+const REQUEST_TIMEOUT_MS = 30_000;
 const LOOPBACK = new Set(["127.0.0.1", "localhost", "::1"]);
 
 export function isSafeSkinId(id) {
@@ -58,12 +61,19 @@ export function skinUrl(center, id, part = "") {
   return part ? `${origin}/api/skins/${id}/${part}` : `${origin}/api/skins/${id}`;
 }
 
-export async function downloadToFile(url, dest, { maxBytes, expectedOrigin, onProgress } = {}) {
+export async function downloadToFile(url, dest, { maxBytes, expectedOrigin, onProgress, signal } = {}) {
   const expected = new URL(url);
   if (expectedOrigin && expected.origin !== expectedOrigin) {
     throw new Error("Skin media download host mismatch.");
   }
-  const response = await fetch(url, { redirect: "follow" });
+  // Bound every media download; a stalling skin center must not leave the
+  // gallery request open forever. Callers may pass an AbortSignal to cancel
+  // early when the browser client disconnects.
+  const timeoutSignal = AbortSignal.timeout(INSTALL_TIMEOUT_MS);
+  const response = await fetch(url, {
+    redirect: "follow",
+    signal: signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal,
+  });
   if (!response.ok || !response.body) {
     throw new Error("Skin media download failed.");
   }
@@ -89,7 +99,7 @@ export async function downloadToFile(url, dest, { maxBytes, expectedOrigin, onPr
     },
   });
   await pipeline(Readable.fromWeb(response.body), limiter, fs.createWriteStream(dest));
-  return { bytes: size };
+  return { bytes: size, contentType: response.headers.get("content-type") ?? null };
 }
 
 function extensionOf(url, fallback) {
@@ -100,6 +110,25 @@ function extensionOf(url, fallback) {
     /* use fallback */
   }
   return fallback;
+}
+
+// The /image endpoint is extensionless; derive the on-disk suffix from the
+// response content-type so JPEG/WebP are not mislabeled as .png (which the
+// image validator would then reject on a magic-byte mismatch).
+function extensionForContentType(contentType) {
+  const mime = String(contentType ?? "").split(";")[0].trim().toLowerCase();
+  switch (mime) {
+    case "image/jpeg":
+      return ".jpg";
+    case "image/png":
+      return ".png";
+    case "image/webp":
+      return ".webp";
+    case "image/avif":
+      return ".avif";
+    default:
+      return null;
+  }
 }
 
 export function createGalleryHandlers({ dataRoot, actions }) {
@@ -143,9 +172,24 @@ export function createGalleryHandlers({ dataRoot, actions }) {
         return;
       }
       const incoming = new URL(req.url || "/", "http://127.0.0.1");
-      const target = new URL("/api/catalog", `${center}/`);
+      // Resolve relative to the center's own path so a base like
+      // https://host/beauticode keeps its prefix (skinUrl already does).
+      const target = new URL("api/catalog", `${center}/`);
       target.search = incoming.search;
-      const response = await fetch(target, { headers: { accept: "application/json" } });
+      let response;
+      try {
+        response = await fetch(target, {
+          headers: { accept: "application/json" },
+          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        });
+      } catch (error) {
+        sendJson(res, 502, {
+          ok: false,
+          error: "无法连接皮肤中心，请稍后重试。",
+          skins: [],
+        });
+        return;
+      }
       const body = await response.json().catch(() => null);
       if (!response.ok || !body || body.ok === false) {
         sendJson(res, 422, {
@@ -192,9 +236,18 @@ export function createGalleryHandlers({ dataRoot, actions }) {
         if (!res.writableEnded) res.write(`${JSON.stringify(payload)}\n`);
       };
       const tmpDir = path.join(dataRoot, "tmp", "gallery", `${Date.now()}-${crypto.randomBytes(4).toString("hex")}`);
+      // Cancel the download when the browser client disconnects (e.g. the UI
+      // timeout aborts its fetch); otherwise a slow skin download keeps going
+      // and can still commit a background after the controls recovered.
+      const clientAbort = new AbortController();
+      const onClose = () => clientAbort.abort(new Error("客户端已断开。"));
+      res.once("close", onClose);
       try {
         write({ phase: "fetch" });
-        const metaRes = await fetch(skinUrl(center, id), { headers: { accept: "application/json" } });
+        const metaRes = await fetch(skinUrl(center, id), {
+          headers: { accept: "application/json" },
+          signal: AbortSignal.any([clientAbort.signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]),
+        });
         const meta = await metaRes.json().catch(() => null);
         const skin = meta?.skin;
         if (!metaRes.ok || !skin || skin.status && skin.status !== "approved") {
@@ -202,13 +255,19 @@ export function createGalleryHandlers({ dataRoot, actions }) {
         }
         await fsp.mkdir(tmpDir, { recursive: true });
         const imageUrl = skinUrl(center, id, "image");
-        const imagePath = path.join(tmpDir, `image${extensionOf(imageUrl, ".png")}`);
+        const imageTmp = path.join(tmpDir, "image.download");
         write({ phase: "download", part: "image" });
-        await downloadToFile(imageUrl, imagePath, {
+        const imageDownload = await downloadToFile(imageUrl, imageTmp, {
           maxBytes: MAX_IMAGE_BYTES,
           expectedOrigin: origin,
+          signal: clientAbort.signal,
           onProgress: (done, total) => write({ phase: "download", part: "image", done, total }),
         });
+        const imagePath = path.join(
+          tmpDir,
+          `image${extensionForContentType(imageDownload.contentType) ?? extensionOf(imageUrl, ".png")}`,
+        );
+        await fsp.rename(imageTmp, imagePath);
         let videoPath;
         if (skin.type === "video") {
           const videoUrl = skinUrl(center, id, "video");
@@ -217,25 +276,30 @@ export function createGalleryHandlers({ dataRoot, actions }) {
           await downloadToFile(videoUrl, videoPath, {
             maxBytes: MAX_VIDEO_BYTES,
             expectedOrigin: origin,
+            signal: clientAbort.signal,
             onProgress: (done, total) => write({ phase: "download", part: "video", done, total }),
           });
         }
-        write({ phase: "import" });
+        // Skin-center media is downloaded into the store, so it is a managed
+        // import. importTheme applies-and-saves atomically; the media is copied
+        // before it returns, so tmpDir is safe to remove in finally.
+        write({ phase: "apply" });
         const imported = await importTheme({
           name: String(skin.name || id).slice(0, 80),
           imagePath,
           ...(videoPath ? { videoPath } : {}),
           ...(skin.effects ? { effects: skin.effects } : {}),
-          source: { kind: "skin-center", skinId: id, centerUrl: center },
+          source: "managed",
         });
-        write({ phase: "apply" });
-        const applied = await actions.useTheme(imported.theme?.id || imported.id, undefined);
-        fetch(skinUrl(center, id, "download"), { method: "POST" }).catch(() => {});
+        fetch(skinUrl(center, id, "download"), {
+          method: "POST",
+          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        }).catch(() => {});
         write({
           ok: true,
           phase: "done",
           theme: imported.theme || imported,
-          message: applied.message || `已安装并应用「${skin.name}」。`,
+          message: imported.message || `已安装并应用「${skin.name}」。`,
         });
       } catch (error) {
         write({
@@ -243,6 +307,7 @@ export function createGalleryHandlers({ dataRoot, actions }) {
           error: error instanceof Error ? error.message : String(error),
         });
       } finally {
+        res.off("close", onClose);
         await fsp.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
         res.end();
       }

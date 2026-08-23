@@ -212,6 +212,7 @@ foreach ($relativeDir in @(
     "packages\adapter-codex",
     "packages\adapter-dsh",
     "integrations\deepseek-harness",
+    "integrations\deepseek-harness\bin",
     "node_modules\@beauticode\core",
     "runtime",
     "licenses\node"
@@ -240,7 +241,11 @@ foreach ($relativeFile in @(
     "integrations\deepseek-harness\agent.mjs",
     "integrations\deepseek-harness\control-client.mjs",
     "integrations\deepseek-harness\host-apply.mjs",
+    "integrations\deepseek-harness\gallery.js",
+    "integrations\deepseek-harness\gallery-host.mjs",
+    "integrations\deepseek-harness\skin-center.json",
     "integrations\deepseek-harness\cli.js",
+    "integrations\deepseek-harness\bin\beauticode-dsh",
     "integrations\deepseek-harness\cordis.patch.yml",
     "integrations\deepseek-harness\package.json",
     "assets\themes\internal-beyond\bg-internal.jpg",
@@ -319,6 +324,15 @@ $dshAdapterProbe = & $stagedNode --input-type=module -e `
   $dshAdapterUrl
 if ($LASTEXITCODE -ne 0 -or $dshAdapterProbe -ne "function") {
   throw ("Staged DSH adapter import failed: {0}" -f $dshAdapterProbe)
+}
+# The Cordis plugin imports its sibling modules (ui-host -> gallery-host, etc.),
+# so a staging list that misses any plugin file kills the whole DSH bridge.
+$pluginEntryUrl = ([System.Uri](Join-Path $StageRoot "integrations\deepseek-harness\index.mjs")).AbsoluteUri
+$pluginProbe = & $stagedNode --input-type=module -e `
+  "const m=await import(process.argv[1]); console.log(typeof m.name);" `
+  $pluginEntryUrl
+if ($LASTEXITCODE -ne 0 -or $pluginProbe -ne "string") {
+  throw ("Staged DSH plugin import failed: {0}" -f $pluginProbe)
 }
 
 $iscc = Resolve-InnoCompiler $InnoCompiler

@@ -344,6 +344,7 @@ export class BeautiSession implements HostSession {
       fish: this.fishMode,
       muted: this.videoMuted,
       tone: this.backgroundTone,
+      themeId: this.activeThemeId,
     };
   }
 

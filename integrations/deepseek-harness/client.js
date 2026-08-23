@@ -1598,7 +1598,7 @@ html[data-bc-fish="true"] #root{opacity:0!important;visibility:hidden!important;
       // A heartbeat is observational, not a second render verdict. Playback can
       // briefly pause while Chromium changes modes or refills an 8K buffer; do
       // not downgrade an already-rendered generation or fail a pending one.
-      void acknowledgeRender(committedPayload, true, true).catch(() => {});
+<      void acknowledgeRender(committedPayload, true, true).catch(() => {});
     }
   }, 1_000);
 })();

@@ -252,7 +252,12 @@ body:not([data-ds-dark-theme]) #beauticode-console-pop{background:#f3f0e9;color:
       return body;
     } catch (error) {
       if (controller?.signal.aborted) {
-        throw new Error("背景操作超时，控件已恢复。原背景保持不变，请重试。");
+        // The browser only cancels its own fetch; a slow backend transaction
+        // (managed-video copy or verify) may still commit afterwards. Don't
+        // claim the previous background was preserved — report honestly.
+        throw new Error(
+          "背景操作超时，控件已恢复。操作可能仍在后台进行，请先查看当前背景状态再重试。",
+        );
       }
       throw error;
     } finally {

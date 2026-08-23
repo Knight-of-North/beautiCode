@@ -16,6 +16,8 @@ export interface HostSessionStatus {
   fish: boolean;
   muted: boolean;
   tone: BackgroundTone;
+  /** Currently applied saved theme id (video themes), or null. */
+  themeId?: string | null;
 }
 
 /**

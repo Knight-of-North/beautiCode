@@ -48,11 +48,21 @@ body:not([data-ds-dark-theme]) #beauticode-gallery .bcg-panel{background:#fff;co
   let centerUrl = "";
   let busy = false;
 
+  // Mirrors gallery-host.mjs::isSafeSkinId — catalog ids are only safe to
+  // render when they match the skin-<hex> shape the backend already validates.
+  const SKIN_ID = /^skin-[a-z0-9]{8,40}$/;
+
   function escapeText(value) {
     return String(value ?? "")
       .replaceAll("&", "&amp;")
       .replaceAll("<", "&lt;")
       .replaceAll(">", "&gt;");
+  }
+
+  // Attribute context additionally needs quote escaping; escapeText alone lets
+  // a malicious catalog id break out of data-id/src and inject handlers.
+  function escapeAttr(value) {
+    return escapeText(value).replaceAll('"', "&quot;").replaceAll("'", "&#39;");
   }
 
   async function request(path, init) {
@@ -104,16 +114,17 @@ body:not([data-ds-dark-theme]) #beauticode-gallery .bcg-panel{background:#fff;co
     const data = await request(`/__beauticode/ui/gallery/catalog?${params}`);
     centerUrl = data.url || centerUrl;
     grid.innerHTML = (data.skins || [])
+      .filter((skin) => SKIN_ID.test(String(skin.id ?? "")))
       .map(
         (skin) =>
-          `<button type="button" class="bcg-card" data-id="${escapeText(skin.id)}">` +
-          `<img alt="" src="${escapeText(centerUrl)}/api/skins/${escapeText(skin.id)}/card">` +
+          `<button type="button" class="bcg-card" data-id="${escapeAttr(skin.id)}">` +
+          `<img alt="" src="${escapeAttr(centerUrl)}/api/skins/${escapeAttr(skin.id)}/card">` +
           `<span>${escapeText(skin.name)}${skin.type === "video" ? " · 视频" : ""}</span></button>`,
       )
       .join("");
     msg.textContent = data.skins?.length ? "" : "目录是空的。";
     foot.innerHTML = centerUrl
-      ? `上传与审核在 <a href="${escapeText(centerUrl)}" target="_blank" rel="noreferrer">皮肤中心网站</a>。安装会下载到本机后再应用。`
+      ? `上传与审核在 <a href="${escapeAttr(centerUrl)}" target="_blank" rel="noreferrer">皮肤中心网站</a>。安装会下载到本机后再应用。`
       : "未配置皮肤中心地址。在插件的 skin-center.json 或环境变量 BEAUTICODE_SKIN_CENTER 里填入你的域名。";
   }
 

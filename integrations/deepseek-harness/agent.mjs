@@ -124,6 +124,23 @@ function unwrapApply(result, fallbackMode, message) {
   };
 }
 
+// The raw manifest exposes a local source's absolute on-disk path. The status
+// tool result is surfaced to the model, so only forward a safe summary.
+function sanitizeBackground(background) {
+  if (!background) return null;
+  const safe = {
+    type: background.type,
+    ...(background.effects ? { effects: background.effects } : {}),
+  };
+  if (background.source) {
+    safe.source =
+      background.source.kind === "local"
+        ? { kind: "local" }
+        : { kind: "managed", file: background.source.file };
+  }
+  return safe;
+}
+
 function presentStatus(status) {
   const background = status.manifest?.background ?? status.background ?? null;
   return {
@@ -133,7 +150,7 @@ function presentStatus(status) {
     fish: status.fish === true,
     muted: status.muted !== false,
     tone: status.tone ?? "dark",
-    background,
+    background: sanitizeBackground(background),
     sourceMode: background
       ? background.source?.kind === "local"
         ? "local"
@@ -350,33 +367,36 @@ export function createBeauticodeActions(dataRootOrOptions) {
       const name = String(input?.name ?? "").trim();
       const imagePath = String(input?.imagePath ?? "").trim();
       if (!name || !imagePath) fail("导入皮肤必须提供名称和图片。");
-      const body = {
-        name,
-        imagePath,
-      };
-      if (typeof input.videoPath === "string" && input.videoPath.trim()) {
-        body.videoPath = input.videoPath.trim();
-      }
-      if (input.effects) body.effects = input.effects;
-      if (input.source) body.source = input.source;
+      const source = input?.source === "managed" ? "managed" : "local";
+      const hasVideo = typeof input.videoPath === "string" && Boolean(input.videoPath.trim());
+      const themeInput = hasVideo
+        ? {
+            type: "video",
+            videoPath: input.videoPath.trim(),
+            imagePath,
+            source,
+          }
+        : { type: "image", imagePath, source };
+      if (!hasVideo && input.effects) themeInput.effects = input.effects;
       const resolved = await backend();
-      if (resolved.kind === "tray") {
-        const result = await request({
-          method: "POST",
-          path: "/theme/import",
-          body,
-          signal,
-          timeoutMs: 30 * 60 * 1000,
-        });
-        if (!result || result.ok === false) fail(result?.error || "导入皮肤失败。");
-        return {
-          ok: true,
-          theme: result.theme,
-          message: `已保存皮肤「${result.theme.name}」。`,
-        };
-      }
-      const theme = await resolved.session.importSavedTheme(body);
-      return { ok: true, theme, message: `已保存皮肤「${theme.name}」。` };
+      // Gallery import applies-and-saves through the same atomic transaction as
+      // the normal image/video flow. There is no separate import-only endpoint:
+      // the tray exposes /theme/apply and DshSession exposes applyAndSaveTheme.
+      const result =
+        resolved.kind === "tray"
+          ? await request({
+              method: "POST",
+              path: "/theme/apply",
+              body: { name, input: themeInput },
+              signal,
+              timeoutMs: 30 * 60 * 1000,
+            })
+          : await resolved.session.applyAndSaveTheme(themeInput, name);
+      return unwrapApplyResult(
+        result,
+        hasVideo ? "video" : "image",
+        `已保存皮肤「${name}」。`,
+      );
     },
 
     async listThemes(signal) {
