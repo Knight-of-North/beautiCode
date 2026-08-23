@@ -9,5 +9,5 @@
 # and restart `dsh web`. beautiCode does not start DSH for you.
 - insert:
     - id: beauticode-bridge
-      name: '@beauticode/dsh-plugin'
+      name: 'beauticode-dsh'
       inject: [webServer]

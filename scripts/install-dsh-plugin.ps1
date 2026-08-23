@@ -39,7 +39,8 @@ $webProfile = Join-Path $DshHome "profiles\web"
 $webPatch = Join-Path $webProfile "cordis.patch.yml"
 $webPackage = Join-Path $webProfile "package.json"
 $homePatch = Join-Path $DshHome "cordis.patch.yml"
-$pluginName = "@beauticode/dsh-plugin"
+$pluginName = "beauticode-dsh"
+$legacyPluginName = "@beauticode/dsh-plugin"
 $bridgeId = "beauticode-bridge"
 
 function Write-BcLog([string]$Message) {
@@ -151,10 +152,16 @@ function Write-BridgePatch([string]$Path, [string]$Body) {
 }
 
 function Ensure-PluginJunction {
-  $linkParent = Join-Path $webProfile "node_modules\@beauticode"
-  $link = Join-Path $linkParent "dsh-plugin"
+  $link = Join-Path $webProfile "node_modules\$pluginName"
+  $legacyLink = Join-Path $webProfile "node_modules\@beauticode\dsh-plugin"
+  $linkParent = Split-Path -Parent $link
   if (-not (Test-Path -LiteralPath $linkParent)) {
     New-Item -ItemType Directory -Path $linkParent -Force | Out-Null
+  }
+  # npx beauticode-dsh installs used the scoped name; drop that wiring so the
+  # profile never carries two links to different plugin copies.
+  if (Test-Path -LiteralPath $legacyLink) {
+    Remove-Item -LiteralPath $legacyLink -Force -Recurse
   }
   if (Test-Path -LiteralPath $link) {
     $item = Get-Item -LiteralPath $link -Force
@@ -180,11 +187,14 @@ function Ensure-WebPackageDep {
   }
   $linkSpec = "link:" + ($PluginRoot -replace "\\", "/")
   $deps = $json.dependencies
+  # Swap any legacy scoped dep (npx-installed copy) for the installer's link.
+  $hadLegacy = $deps.PSObject.Properties.Name -contains $legacyPluginName
+  $deps.PSObject.Properties.Remove($legacyPluginName)
   $current = $null
   if ($deps.PSObject.Properties.Name -contains $pluginName) {
     $current = [string]$deps.$pluginName
   }
-  if ($current -eq $linkSpec) { return }
+  if ($current -eq $linkSpec -and -not $hadLegacy) { return }
   $deps | Add-Member -NotePropertyName $pluginName -NotePropertyValue $linkSpec -Force
   # Windows PowerShell 5.1 Set-Content -Encoding UTF8 writes a BOM.
   # DSH reads the profile manifest with JSON.parse and rejects that.
@@ -219,15 +229,40 @@ if (-not (Test-Path -LiteralPath $packageFile -PathType Leaf)) {
   throw ("缺少 DSH 插件清单：{0}" -f $packageFile)
 }
 
+function Remove-WebPackageDeps {
+  if (-not (Test-Path -LiteralPath $webPackage -PathType Leaf)) { return $false }
+  $raw = [IO.File]::ReadAllText($webPackage)
+  $json = $raw | ConvertFrom-Json
+  if (-not $json.dependencies) { return $false }
+  $deps = $json.dependencies
+  $changed = $false
+  foreach ($name in @($pluginName, $legacyPluginName)) {
+    if ($deps.PSObject.Properties.Name -contains $name) {
+      $deps.PSObject.Properties.Remove($name)
+      $changed = $true
+    }
+  }
+  if (-not $changed) { return $false }
+  $utf8 = New-Object System.Text.UTF8Encoding $false
+  $text = $json | ConvertTo-Json -Depth 8
+  [IO.File]::WriteAllText($webPackage, ($text.TrimEnd() + "`n"), $utf8)
+  return $true
+}
+
 if ($Remove) {
   $removed = $false
   if (Remove-BridgeFromPatch $webPatch) { $removed = $true }
   if (Remove-BridgeFromPatch $homePatch) { $removed = $true }
-  $link = Join-Path $webProfile "node_modules\@beauticode\dsh-plugin"
-  if (Test-Path -LiteralPath $link) {
-    Remove-Item -LiteralPath $link -Force -Recurse
-    $removed = $true
+  foreach ($link in @(
+      (Join-Path $webProfile "node_modules\$pluginName"),
+      (Join-Path $webProfile "node_modules\@beauticode\dsh-plugin")
+    )) {
+    if (Test-Path -LiteralPath $link) {
+      Remove-Item -LiteralPath $link -Force -Recurse
+      $removed = $true
+    }
   }
+  if (Remove-WebPackageDeps) { $removed = $true }
   if ($removed) { Write-BcLog "Removed beautiCode DSH plugin wiring." }
   else { Write-BcLog "No beautiCode DSH plugin wiring to remove." }
   if ($InstallRoot) {

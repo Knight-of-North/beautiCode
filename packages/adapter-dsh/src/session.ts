@@ -6,7 +6,9 @@ import {
   MediaServerController,
   buildHostApplyPayload,
   defaultDataRoot,
+  isLocalBackgroundSource,
   resolveSessionBundledThemes,
+  resolveBackgroundImagePath,
   type ApplyInput,
   type ApplyResult,
   type BackgroundTone,
@@ -14,7 +16,7 @@ import {
   type HostSessionStatus,
   type SavedThemeInfo,
 } from "@beauticode/core";
-import { DshHostApplier, normalizeDshBaseUrl } from "./bridge.js";
+import { DshHostApplier, dshTrustedOrigins, normalizeDshBaseUrl } from "./bridge.js";
 import { DSH_HOST_DESCRIPTOR } from "./host-descriptor.js";
 import { acquireDshInjectorLock } from "./injector-lock.js";
 import { ensureBridgeToken } from "./token.js";
@@ -36,6 +38,14 @@ export interface DshSessionOptions {
   bundledGallery?: boolean;
   bundledGalleryImagePath?: string;
 }
+
+export type ApplyAndSaveThemeResult =
+  | (Extract<ApplyResult, { ok: true }> & { theme: SavedThemeInfo })
+  | Extract<ApplyResult, { ok: false }>;
+
+type ApplyExecutionResult =
+  | (Extract<ApplyResult, { ok: true }> & { theme?: SavedThemeInfo })
+  | Extract<ApplyResult, { ok: false }>;
 
 export class DshSession implements HostSession {
   readonly descriptor = DSH_HOST_DESCRIPTOR;
@@ -87,7 +97,7 @@ export class DshSession implements HostSession {
     });
     this.media = new MediaServerController({
       enabled: true,
-      trustedOrigins: [this.baseUrl.origin],
+      trustedOrigins: dshTrustedOrigins(this.baseUrl),
     });
     this.onError = opts.onError ?? null;
     this.onStatus = opts.onStatus ?? null;
@@ -135,7 +145,26 @@ export class DshSession implements HostSession {
     return this.trackOperation(this.applyInternal(input));
   }
 
-  private async applyInternal(input: ApplyInput): Promise<ApplyResult> {
+  async applyAndSaveTheme(
+    input: ApplyInput,
+    name: string,
+  ): Promise<ApplyAndSaveThemeResult> {
+    const result = await this.trackOperation(this.applyInternal(input, name));
+    if (!result.ok) return result;
+    if (!result.theme) {
+      return {
+        ok: false,
+        error: "Theme apply completed without a saved theme.",
+        rolledBack: false,
+      };
+    }
+    return { ...result, theme: result.theme };
+  }
+
+  private async applyInternal(
+    input: ApplyInput,
+    themeName?: string,
+  ): Promise<ApplyExecutionResult> {
     if (!this.releaseLock || this.closed || !this.host) {
       throw new Error("Session is not started");
     }
@@ -148,16 +177,70 @@ export class DshSession implements HostSession {
     }
     this.userBusy = true;
     try {
+      // The startup/watch probe may already have opened active/background.json
+      // before userBusy became true. On Windows that read can overlap the
+      // transaction's atomic active-directory rename and cause EPERM. Drain
+      // that one read before beginning any apply mutation; later watch ticks
+      // observe userBusy and do not reapply.
+      const inFlightWatch = this.watchTask;
+      if (inFlightWatch) await inFlightWatch;
       const tx = new ApplyTransaction({
         store: this.store,
         media: this.media,
         host: this.host,
+        includeImageDataUrl: false,
         verifyDeadlineMs: this.verifyDeadlineMs,
         offline: false,
       });
-      const result = await tx.run(input);
+      const saved = { theme: null as SavedThemeInfo | null };
+      const result = await tx.run(
+        input,
+        themeName
+          ? {
+              beforeFinalize: async () => {
+                // Persist the initial seek so a restore before the periodic
+                // progress writer runs still resumes at the requested position.
+                let videoPositionSec: number | null = null;
+                if (input.type === "video") {
+                  if (this.host) {
+                    try {
+                      const position = await this.host.getPlaybackPosition();
+                      if (
+                        position.ok &&
+                        position.hasVideo &&
+                        Number.isFinite(position.currentTime)
+                      ) {
+                        videoPositionSec = position.currentTime;
+                      }
+                    } catch {
+                      /* fall back to input.startAt below */
+                    }
+                  }
+                  const startAt =
+                    typeof input.startAt === "number" && Number.isFinite(input.startAt)
+                      ? input.startAt
+                      : null;
+                  if (videoPositionSec == null && startAt != null) {
+                    videoPositionSec = Math.max(0, startAt);
+                  }
+                }
+                saved.theme = await this.store.saveCurrentTheme(themeName, {
+                  ...(videoPositionSec != null ? { videoPositionSec } : {}),
+                });
+              },
+              onRollback: async () => {
+                if (saved.theme) {
+                  await this.store.deleteSavedTheme(saved.theme.id);
+                }
+              },
+            }
+          : undefined,
+      );
       if (result.ok) {
-        this.activeThemeId = null;
+        // Retain the saved theme id for image themes too: status.themeId marks
+        // the current selection in the console, and video-position tracking is
+        // already gated on hasVideo / "Not a video theme" downstream.
+        this.activeThemeId = saved.theme?.id ?? null;
         this.lastProgressWriteSec = -1;
         if (input.type === "clear") {
           this.fishMode = false;
@@ -174,7 +257,7 @@ export class DshSession implements HostSession {
         }
         await this.host.setBackgroundTone(this.backgroundTone).catch(() => null);
       }
-      return result;
+      return result.ok && saved.theme ? { ...result, theme: saved.theme } : result;
     } finally {
       this.userBusy = false;
     }
@@ -215,19 +298,36 @@ export class DshSession implements HostSession {
         }
       }
       if (manifest.background) {
-        stagedImage = await this.media.stage(
-          path.join(this.store.paths.activeDir, manifest.background.image),
+        const imagePath = resolveBackgroundImagePath(
+          this.store.paths.activeDir,
+          manifest.background,
         );
-        if (manifest.background.type === "video" && manifest.background.video) {
+        if (!imagePath) throw new Error("Background has no image source.");
+        stagedImage = await this.media.stage(imagePath, {
+          validation:
+            manifest.background.type === "image" && isLocalBackgroundSource(manifest.background)
+              ? "fast"
+              : "full",
+        });
+        if (manifest.background.type === "video") {
           const runtimeVideoPath = await this.store.prepareRuntimeVideo(manifest);
           if (!runtimeVideoPath) {
             throw new Error("DSH video reapply requires a detached runtime copy.");
           }
-          stagedVideo = await this.media.stage(runtimeVideoPath);
+          stagedVideo = await this.media.stage(runtimeVideoPath, {
+            validation: isLocalBackgroundSource(manifest.background) ? "fast" : "full",
+          });
         }
       }
       const staged = { image: stagedImage, video: stagedVideo };
-      const payload = await buildHostApplyPayload(this.store, manifest, staged, "");
+      const payload = await buildHostApplyPayload(
+        this.store,
+        manifest,
+        staged,
+        "",
+        undefined,
+        { includeImageDataUrl: false },
+      );
       if (payload.video && resumeAt != null) payload.video.startAt = resumeAt;
       await this.host.apply(payload);
       const verify = await this.host.verify(
@@ -289,6 +389,7 @@ export class DshSession implements HostSession {
       fish: this.fishMode,
       muted: this.videoMuted,
       tone: this.backgroundTone,
+      themeId: this.activeThemeId,
     };
   }
 
@@ -305,12 +406,8 @@ export class DshSession implements HostSession {
       }
     }
     const theme = await this.store.saveCurrentTheme(name, { videoPositionSec });
-    if (theme.type === "video") {
-      this.activeThemeId = theme.id;
-      this.lastProgressWriteSec = -1;
-    } else {
-      this.activeThemeId = null;
-    }
+    this.activeThemeId = theme.id;
+    this.lastProgressWriteSec = -1;
     return theme;
   }
 
@@ -332,7 +429,7 @@ export class DshSession implements HostSession {
       const saved = await this.store.loadSavedTheme(themeId);
       const result = await this.apply(saved.input);
       if (result.ok) {
-        this.activeThemeId = saved.input.type === "video" ? saved.themeId : null;
+        this.activeThemeId = saved.themeId;
         this.lastProgressWriteSec = -1;
       }
       return result;

@@ -1,6 +1,6 @@
 # DeepSeek Harness 集成
 
-beautiCode 通过 DeepSeek Harness 的 Cordis 插件接口接入（`@beauticode/dsh-plugin`），不修改 DSH 源码，也不依赖 Chromium 调试端口。DSH 由你自己启动；beautiCode 只挂插件、不替代、不重启你的 DSH。Codex Desktop 仍由托盘按原路径拉起，与本节无关。
+beautiCode 通过 DeepSeek Harness 的 Cordis 插件接口接入（`beauticode-dsh`），不修改 DSH 源码，也不依赖 Chromium 调试端口。DSH 由你自己启动；beautiCode 只挂插件、不替代、不重启你的 DSH。Codex Desktop 仍由托盘按原路径拉起，与本节无关。
 
 ## 已实现能力
 
@@ -57,7 +57,7 @@ npx @deepseek-ai/dsh plugin --profile web add file:%LOCALAPPDATA%\Programs\beaut
 ```yaml
 - insert:
     - id: beauticode-bridge
-      name: '@beauticode/dsh-plugin'
+      name: 'beauticode-dsh'
       inject: [webServer]
 ```
 

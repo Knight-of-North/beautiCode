@@ -168,12 +168,30 @@ function publicStatus(current, modes, clients, clientStates) {
   const playback =
     activeAcks.find((ack) => ack.ok === true && ack.playback?.hasVideo === true)
       ?.playback ?? null;
+  // Only an explicit renderer error is terminal. Older clients may send a
+  // transient ok:false heartbeat while a large video is still warming up.
+  const failedAcks = activeAcks.filter(
+    (ack) => ack.ok === false && typeof ack.error === "string" && ack.error,
+  );
+  const readyAcks = activeAcks.filter((ack) => ack.ok === true);
+  // Poster-first video commits ack ok while the first frame still settles.
+  const videoPendingAcks = readyAcks.filter(
+    (ack) => ack.media === "video" && ack.videoReady === false,
+  );
   return {
     ok: true,
     connectedClients: clients.size,
     current,
-    readyClients: activeAcks.filter((ack) => ack.ok === true).length,
-    failedClients: activeAcks.filter((ack) => ack.ok !== true).length,
+    readyClients: readyAcks.length,
+    failedClients: failedAcks.length,
+    videoReadyClients: readyAcks.length - videoPendingAcks.length,
+    videoPendingClients: videoPendingAcks.length,
+    lastVideoError:
+      videoPendingAcks.find((ack) => typeof ack.error === "string" && ack.error)?.error ??
+      null,
+    lastRenderError:
+      failedAcks.find((ack) => typeof ack.error === "string" && ack.error)?.error ??
+      null,
     visibleClients: activeAcks.filter((ack) => ack.ok === true && ack.visible === true).length,
     modeReadyClients: modeReady.length,
     blockedClients: modeReady.filter((ack) => ack.blocked === true).length,
@@ -198,6 +216,10 @@ export function apply(ctx, config = {}) {
     sendJson,
     isSameOrigin,
     readJson,
+    pickMedia: config.pickMedia,
+    allowManagedUpload: config.allowManagedUpload,
+    now: config.now,
+    selectionTtlMs: config.selectionTtlMs,
   });
 
   const broadcast = (payload) => {
@@ -211,7 +233,8 @@ export function apply(ctx, config = {}) {
       const script =
         '<script defer src="/__beauticode/atmosphere.js"></script>' +
         '<script defer src="/__beauticode/client.js" data-beauticode-bridge></script>' +
-        '<script defer src="/__beauticode/console.js"></script>';
+        '<script defer src="/__beauticode/console.js"></script>' +
+        '<script defer src="/__beauticode/gallery.js"></script>';
       return html.includes("</body>")
         ? html.replace("</body>", `${script}</body>`)
         : `${html}${script}`;
@@ -314,6 +337,23 @@ export function apply(ctx, config = {}) {
       }),
       ctx.webServer.register({
         kind: "exact",
+        path: "/__beauticode/gallery.js",
+        handler: async (req, res) => {
+          if (req.method !== "GET" && req.method !== "HEAD") {
+            res.writeHead(405).end();
+            return;
+          }
+          const source = await fs.readFile(path.join(here, "gallery.js"));
+          res.writeHead(200, {
+            "content-type": "text/javascript; charset=utf-8",
+            "cache-control": "no-store",
+            "content-length": source.length,
+          });
+          res.end(req.method === "HEAD" ? undefined : source);
+        },
+      }),
+      ctx.webServer.register({
+        kind: "exact",
         path: "/__beauticode/console.js",
         handler: async (req, res) => {
           if (req.method !== "GET" && req.method !== "HEAD") {
@@ -341,6 +381,16 @@ export function apply(ctx, config = {}) {
       }),
       ctx.webServer.register({
         kind: "exact",
+        path: "/__beauticode/ui/pick",
+        handler: (req, res) => ui.pickMedia(req, res),
+      }),
+      ctx.webServer.register({
+        kind: "exact",
+        path: "/__beauticode/ui/import-selected",
+        handler: (req, res) => ui.importSelected(req, res),
+      }),
+      ctx.webServer.register({
+        kind: "exact",
         path: "/__beauticode/ui/clear",
         handler: (req, res) => ui.clear(req, res),
       }),
@@ -356,8 +406,28 @@ export function apply(ctx, config = {}) {
       }),
       ctx.webServer.register({
         kind: "exact",
+        path: "/__beauticode/ui/theme/delete",
+        handler: (req, res) => ui.deleteTheme(req, res),
+      }),
+      ctx.webServer.register({
+        kind: "exact",
         path: "/__beauticode/ui/preset",
         handler: (req, res) => ui.applyPreset(req, res),
+      }),
+      ctx.webServer.register({
+        kind: "exact",
+        path: "/__beauticode/ui/gallery/config",
+        handler: (req, res) => ui.galleryConfig(req, res),
+      }),
+      ctx.webServer.register({
+        kind: "exact",
+        path: "/__beauticode/ui/gallery/catalog",
+        handler: (req, res) => ui.galleryCatalog(req, res),
+      }),
+      ctx.webServer.register({
+        kind: "exact",
+        path: "/__beauticode/ui/gallery/install",
+        handler: (req, res) => ui.galleryInstall(req, res),
       }),
       ctx.webServer.register({
         kind: "exact",
@@ -495,7 +565,8 @@ export function apply(ctx, config = {}) {
               body.generation !== current.generation ||
               body.media !== current.media ||
               typeof body.ok !== "boolean" ||
-              typeof body.visible !== "boolean"
+              typeof body.visible !== "boolean" ||
+              (body.videoReady != null && typeof body.videoReady !== "boolean")
             ) {
               sendJson(res, 400, { ok: false, error: "渲染回执无效。" });
               return;
@@ -527,6 +598,9 @@ export function apply(ctx, config = {}) {
               ok: body.ok,
               visible: body.visible,
               error: typeof body.error === "string" ? body.error.slice(0, 300) : null,
+              // Poster-first commits ack ok with videoReady=false while the
+              // first frame still settles; absent means a legacy ready client.
+              videoReady: body.media !== "video" || body.videoReady !== false,
               playback,
             };
           } else if (body.kind === "mode") {

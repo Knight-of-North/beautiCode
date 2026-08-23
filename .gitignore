@@ -1,15 +1,30 @@
+# Dependencies & build output
 node_modules/
 dist/
-*.log
+packages/*/dist/
+packages/*/node_modules/
+apps/tray/node_modules/
+
+# Runtime / local build artifacts (npm pack & windows installer output)
+artifacts/
+*.tsbuildinfo
+
+# Env & OS noise
 .env
 .env.*
 !.env.example
 .DS_Store
+*.log
+
+# Local reference / prototype work
 .ref/
 design-demos/
+
+# Test coverage
 coverage/
-*.tsbuildinfo
-apps/tray/node_modules/
-packages/*/dist/
-packages/*/node_modules/
-artifacts/
+
+# Local agent/tool scratch directories (not part of the project)
+.mimosa/
+.workbuddy/
+.cache/
+.tmp/
