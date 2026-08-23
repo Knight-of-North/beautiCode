@@ -128,7 +128,20 @@ test("plugin injects its client script exactly once", async (t) => {
     source,
     /video\.load\(\);[\s\S]*?const sourceProbe = probeVideoSource\([\s\S]*?await Promise\.all\(\[\s*sourceProbe,/,
   );
-  assert.match(source, /await waitForPresentedFrame\(video, signal, remaining\(\)\)/);
+  // Poster-first commit: the phase-one gate no longer awaits a presented frame;
+  // the settle phase owns it with its own long budget and can never roll back.
+  assert.match(
+    source,
+    /startCandidatePlayback\(video, signal, Math\.min\(PLAY_ACCEPT_TIMEOUT_MS, remaining\(\)\)\)/,
+  );
+  assert.match(source, /acknowledgeRender\(payload, true, true, null, \{ videoReady: false \}\)/);
+  assert.match(source, /settleCommittedVideo\(video, candidate, payload\);/);
+  assert.match(
+    source,
+    /await waitForPresentedFrame\(video, controller\.signal, VIDEO_SETTLE_TIMEOUT_MS\)/,
+  );
+  assert.match(source, /VIDEO_SETTLE_TIMEOUT_MS = 60_000/);
+  assert.match(source, /视频预热未完成（已保留封面）/);
   assert.match(source, /const nextStartAt = seekVideo\(reusableVideo, normalizedStartAt\)/);
   assert.match(source, /currentSlot\.dataset\.bcImageUrl = payload\.imageUrl/);
   assert.match(source, /img\{z-index:2;opacity:1\}/);
@@ -745,7 +758,7 @@ test("browser client separates first-frame acceptance from stable playback", asy
   const source = originalSource
     .replace("const CLIENT_APPLY_DEADLINE_MS = 8_000;", "const CLIENT_APPLY_DEADLINE_MS = 120;")
     .replace(
-      "  function updateCommittedDom(payload) {",
+      "  function updateCommittedDom(payload, videoReady = true) {",
       `  globalThis.__testSeedCommittedSlot = (slot, payload) => {
     const node = stage();
     slot.dataset.bcRole = "current";
@@ -780,7 +793,7 @@ test("browser client separates first-frame acceptance from stable playback", asy
     }
   };
 
-  function updateCommittedDom(payload) {`,
+  function updateCommittedDom(payload, videoReady = true) {`,
     );
   assert.notEqual(source, originalSource, "test must shorten the client deadline and add hooks");
 
@@ -1080,13 +1093,13 @@ test("browser client separates first-frame acceptance from stable playback", asy
 test("same-url video fast path ignores poster churn and permits an in-place reseek", async () => {
   const originalSource = await fs.readFile(new URL("../client.js", import.meta.url), "utf8");
   const source = originalSource.replace(
-    "  function updateCommittedDom(payload) {",
+    "  function updateCommittedDom(payload, videoReady = true) {",
     `  globalThis.__testVideoSlotMatches = (slot, payload) => {
     currentSlot = slot;
     return slotMatchesPayload(slot, payload);
   };
 
-  function updateCommittedDom(payload) {`,
+  function updateCommittedDom(payload, videoReady = true) {`,
   );
   assert.notEqual(source, originalSource, "test hook must expose the real fast-path predicate");
 
@@ -1219,6 +1232,9 @@ test("authenticated apply reaches SSE client and same-origin ack becomes ready",
     current: { ...payload, videoUrl: null, startAt: null },
     readyClients: 1,
     failedClients: 0,
+    videoReadyClients: 1,
+    videoPendingClients: 0,
+    lastVideoError: null,
     lastRenderError: null,
     visibleClients: 1,
     modeReadyClients: 0,
@@ -1513,6 +1529,12 @@ test("browser client warms the media stack on init and reports media-event diagn
       this.parentElement = null;
     }
 
+    get isConnected() {
+      let node = this;
+      while (node.parentElement) node = node.parentElement;
+      return node === documentElement;
+    }
+
     addEventListener(name, handler) {
       const list = this.listeners.get(name) ?? [];
       list.push(handler);
@@ -1638,10 +1660,17 @@ test("browser client warms the media stack on init and reports media-event diagn
 
   let events;
   const acknowledgements = [];
-  let resolveFailedAck;
-  const failedAck = new Promise((resolve) => {
-    resolveFailedAck = resolve;
-  });
+  const ackWaiters = [];
+  const waitForAck = (predicate, timeoutMs = 2_000, label = "ack") =>
+    new Promise((resolve, reject) => {
+      const existing = acknowledgements.find(predicate);
+      if (existing) return resolve(existing);
+      const timer = setTimeout(
+        () => reject(new Error(`timed out waiting for ${label} ack`)),
+        timeoutMs,
+      );
+      ackWaiters.push({ predicate, resolve, timer });
+    });
   const context = {
     AbortController,
     DOMException,
@@ -1664,8 +1693,12 @@ test("browser client warms the media stack on init and reports media-event diagn
       if (options.body) {
         const body = JSON.parse(options.body);
         acknowledgements.push(body);
-        if (body.kind === "render" && body.ok === false) {
-          resolveFailedAck(body);
+        for (const waiter of [...ackWaiters]) {
+          if (waiter.predicate(body)) {
+            clearTimeout(waiter.timer);
+            ackWaiters.splice(ackWaiters.indexOf(waiter), 1);
+            waiter.resolve(body);
+          }
         }
         return { ok: true };
       }
@@ -1711,7 +1744,9 @@ test("browser client warms the media stack on init and reports media-event diagn
   assert.equal(warmup.parentElement, null, "warmup video must be removed after ending");
   assert.equal(documentElement.dataset.bcMediaWarmup, "done");
 
-  // First real apply succeeds through the normal candidate path.
+  // First real apply succeeds through the poster-first candidate path: the
+  // commit ack arrives with the poster still covering, then the first
+  // presented frame upgrades the committed slot in place.
   const videoUrl1 = "http://127.0.0.1:3080/media/video?t=diag-one";
   events.onmessage({
     data: JSON.stringify({
@@ -1734,20 +1769,39 @@ test("browser client warms the media stack on init and reports media-event diagn
     poll();
   });
   assert.ok(applyVideo, "the apply must create its own candidate video");
+  const posterAck = await waitForAck(
+    (body) => body.kind === "render" && body.generation === 701 && body.ok === true,
+    2_000,
+    "poster",
+  );
+  assert.equal(posterAck.videoReady, false, "commit ack must be poster-only");
+  assert.equal(posterAck.playback, null);
+  const committedSlot = applyVideo.parentElement;
+  assert.equal(committedSlot.dataset.bcRole, "current");
+  assert.equal(
+    documentElement.dataset.bcVideoReady,
+    "false",
+    "poster stays the committed visual until the first frame",
+  );
   await new Promise((resolve) => setTimeout(resolve, 25));
   applyVideo.readyState = 2;
   applyVideo.dispatch("loadeddata");
   await new Promise((resolve) => setTimeout(resolve, 20));
   applyVideo.currentTime = 0.5;
   applyVideo.dispatch("playing");
-  await new Promise((resolve) => setTimeout(resolve, 120));
-  const okAcks = acknowledgements.filter(
-    (body) => body.kind === "render" && body.ok === true && body.generation === 701,
+  const upgradeAck = await waitForAck(
+    (body) => body.kind === "render" && body.generation === 701 && body.videoReady === true,
+    2_000,
+    "upgrade",
   );
-  assert.equal(okAcks.length, 1);
+  assert.equal(upgradeAck.ok, true);
+  assert.equal(upgradeAck.playback?.hasVideo, true);
+  assert.equal(committedSlot.dataset.bcVideoReady, "true");
+  assert.equal(documentElement.dataset.bcVideoReady, "true");
 
-  // Second apply fails mid-load; the ack error must carry the media-event
-  // timeline so field reports show which stage stalled.
+  // Second apply stalls mid-load; the poster commit must survive and the
+  // downgrade ack must carry the media-event timeline so field reports show
+  // which stage stalled — a cold decoder can never roll the apply back.
   const videoUrl2 = "http://127.0.0.1:3080/media/video?t=diag-two";
   events.onmessage({
     data: JSON.stringify({
@@ -1776,10 +1830,419 @@ test("browser client warms the media stack on init and reports media-event diagn
   await new Promise((resolve) => setTimeout(resolve, 10));
   failingVideo.error = { code: 3 };
   failingVideo.dispatch("error");
-  const failure = await failedAck;
-  assert.equal(failure.generation, 702);
-  assert.match(failure.error, /MP4 加载或解码失败/);
+  const failure = await waitForAck(
+    (body) =>
+      body.kind === "render" &&
+      body.generation === 702 &&
+      body.videoReady === false &&
+      typeof body.error === "string",
+    2_000,
+    "downgrade",
+  );
+  assert.equal(failure.ok, true, "a settle failure must never roll back the poster");
+  assert.equal(failure.visible, true);
+  assert.match(failure.error, /视频预热未完成（已保留封面）：MP4 加载或解码失败/);
   assert.match(failure.error, /媒体事件=loadstart@\d+ms/);
   assert.match(failure.error, /，progress@\d+ms/);
   assert.match(failure.error, /，error@\d+ms/);
+  assert.equal(failingVideo.parentElement, null, "the stalled decoder must be dropped");
+  assert.equal(documentElement.dataset.bcVideoReady, "false");
+  const stageNode = context.document.getElementById("beauticode-bg-stage");
+  assert.equal(stageNode.children[0].dataset.bcRole, "current");
+  assert.equal(stageNode.children[0].querySelector("img").isConnected, true);
+});
+
+test("frozen cold-start video commits the poster and downgrades without rollback", async () => {
+  const originalSource = await fs.readFile(new URL("../client.js", import.meta.url), "utf8");
+  // Simulate the worst new-host case: the media request starts but the
+  // decoder never produces data or events within any apply deadline.
+  const source = originalSource.replace(
+    "const VIDEO_SETTLE_TIMEOUT_MS = 60_000;",
+    "const VIDEO_SETTLE_TIMEOUT_MS = 120;",
+  );
+  assert.notEqual(source, originalSource, "test must shorten the settle budget");
+
+  const dataKey = (name) =>
+    name.replace(/^data-/, "").replace(/-([a-z])/g, (_all, ch) => ch.toUpperCase());
+
+  class FakeElement {
+    constructor(tagName) {
+      this.tagName = String(tagName).toUpperCase();
+      this.className = "";
+      this.dataset = {};
+      this.style = {};
+      this.attributes = new Map();
+      this.children = [];
+      this.parentElement = null;
+      this.listeners = new Map();
+    }
+    setAttribute(name, value) {
+      if (name.startsWith("data-")) this.dataset[dataKey(name)] = value;
+      else this.attributes.set(name, value);
+    }
+    removeAttribute(name) {
+      if (name.startsWith("data-")) delete this.dataset[dataKey(name)];
+      else this.attributes.delete(name);
+    }
+    hasAttribute(name) {
+      if (name.startsWith("data-")) return dataKey(name) in this.dataset;
+      return this.attributes.has(name);
+    }
+    append(...nodes) {
+      for (const node of nodes) {
+        node.remove();
+        node.parentElement = this;
+        this.children.push(node);
+      }
+    }
+    prepend(...nodes) {
+      for (const node of [...nodes].reverse()) {
+        node.remove();
+        node.parentElement = this;
+        this.children.unshift(node);
+      }
+    }
+    remove() {
+      if (!this.parentElement) return;
+      const siblings = this.parentElement.children;
+      const index = siblings.indexOf(this);
+      if (index >= 0) siblings.splice(index, 1);
+      this.parentElement = null;
+    }
+    get isConnected() {
+      let node = this;
+      while (node.parentElement) node = node.parentElement;
+      return node === documentElement;
+    }
+    addEventListener(name, handler) {
+      const list = this.listeners.get(name) ?? [];
+      list.push(handler);
+      this.listeners.set(name, list);
+    }
+    removeEventListener() {}
+    dispatch(name) {
+      for (const handler of this.listeners.get(name) ?? []) handler({ type: name });
+    }
+    matches(selector) {
+      return selector === "img" || selector === "video"
+        ? this.tagName === selector.toUpperCase()
+        : selector.startsWith(".") && this.className.split(/\s+/).includes(selector.slice(1));
+    }
+    querySelectorAll(selector) {
+      const parts = selector.trim().split(/\s+/);
+      if (parts.length > 1) {
+        return this.querySelectorAll(parts[0]).flatMap((node) =>
+          node.querySelectorAll(parts.slice(1).join(" ")),
+        );
+      }
+      const matches = [];
+      for (const child of this.children) {
+        if (child.matches(selector)) matches.push(child);
+        matches.push(...child.querySelectorAll(selector));
+      }
+      return matches;
+    }
+    querySelector(selector) {
+      return this.querySelectorAll(selector)[0] ?? null;
+    }
+  }
+
+  const createdVideos = [];
+  class FakeVideo extends FakeElement {
+    constructor() {
+      super("video");
+      this.readyState = 0;
+      this.networkState = 0;
+      this.paused = true;
+      this.ended = false;
+      this.seeking = false;
+      this.error = null;
+      this.currentTime = 0;
+      this.duration = 30;
+      this.muted = true;
+      this._src = "";
+      createdVideos.push(this);
+    }
+    set src(value) {
+      this._src = value;
+    }
+    get src() {
+      return this._src;
+    }
+    play() {
+      this.paused = false;
+      return Promise.resolve();
+    }
+    load() {}
+  }
+
+  class FakeImage extends FakeElement {
+    constructor() {
+      super("img");
+      this.complete = false;
+      this.naturalWidth = 0;
+      this.naturalHeight = 0;
+    }
+    set src(value) {
+      queueMicrotask(() => {
+        this.complete = true;
+        this.naturalWidth = 1920;
+        this.naturalHeight = 1080;
+        this.onload?.();
+      });
+    }
+  }
+
+  const documentElement = new FakeElement("html");
+  documentElement.style.colorScheme = "light";
+  const head = new FakeElement("head");
+  const body = new FakeElement("body");
+  const root = new FakeElement("div");
+  root.id = "root";
+  documentElement.append(head, body);
+  body.append(root);
+  const findById = (node, id) => {
+    if (node.id === id) return node;
+    for (const child of node.children) {
+      const match = findById(child, id);
+      if (match) return match;
+    }
+    return null;
+  };
+
+  let events;
+  const acknowledgements = [];
+  const context = {
+    AbortController,
+    DOMException,
+    URL,
+    WeakMap,
+    crypto: { randomUUID: () => "client-frozen-cold-start-test" },
+    document: {
+      body,
+      documentElement,
+      head,
+      visibilityState: "visible",
+      createElement(tagName) {
+        if (tagName === "video") return new FakeVideo();
+        if (tagName === "img") return new FakeImage();
+        return new FakeElement(tagName);
+      },
+      getElementById: (id) => findById(documentElement, id),
+    },
+    fetch: async (_url, options = {}) => {
+      if (options.body) {
+        acknowledgements.push(JSON.parse(options.body));
+        return { ok: true };
+      }
+      return { status: 206, arrayBuffer: async () => new ArrayBuffer(2) };
+    },
+    HTMLMediaElement: { HAVE_CURRENT_DATA: 2, HAVE_FUTURE_DATA: 3 },
+    HTMLVideoElement: FakeVideo,
+    Image: FakeImage,
+    location: { href: "http://127.0.0.1:3080/" },
+    matchMedia: () => ({ matches: false, addEventListener() {} }),
+    MutationObserver: class {
+      observe() {}
+    },
+    navigator: { onLine: true },
+    performance: { now: () => Date.now() },
+    EventSource: class {
+      constructor() {
+        events = this;
+      }
+    },
+    clearInterval,
+    clearTimeout,
+    queueMicrotask,
+    setInterval: () => 0,
+    setTimeout,
+  };
+  context.window = context;
+  context.globalThis = context;
+  vm.runInNewContext(source, context);
+
+  events.onmessage({
+    data: JSON.stringify({
+      type: "apply",
+      generation: 801,
+      media: "video",
+      imageUrl: "http://127.0.0.1:3080/media/image?t=frozen",
+      videoUrl: "http://127.0.0.1:3080/media/video?t=frozen",
+      startAt: 0,
+    }),
+  });
+
+  // No media event ever fires. The poster must still commit and ack ok.
+  const posterAck = await new Promise((resolve, reject) => {
+    const started = Date.now();
+    const poll = () => {
+      const ack = acknowledgements.find(
+        (body) => body.kind === "render" && body.generation === 801 && body.ok === true,
+      );
+      if (ack) resolve(ack);
+      else if (Date.now() - started > 1_000) reject(new Error("poster ack never arrived"));
+      else setTimeout(poll, 5);
+    };
+    poll();
+  });
+  assert.equal(posterAck.videoReady, false);
+  assert.equal(posterAck.playback, null);
+
+  // The settle window expires without a single media event; the downgrade
+  // keeps the poster committed instead of failing the transaction.
+  const downgrade = await new Promise((resolve, reject) => {
+    const started = Date.now();
+    const poll = () => {
+      const ack = acknowledgements.find(
+        (body) =>
+          body.kind === "render" &&
+          body.generation === 801 &&
+          body.ok === true &&
+          body.videoReady === false &&
+          typeof body.error === "string",
+      );
+      if (ack) resolve(ack);
+      else if (Date.now() - started > 2_000) reject(new Error("downgrade ack never arrived"));
+      else setTimeout(poll, 5);
+    };
+    poll();
+  });
+  assert.match(downgrade.error, /视频预热未完成（已保留封面）：等待视频首帧超时/);
+  assert.match(downgrade.error, /媒体事件=无/);
+  assert.equal(downgrade.visible, true);
+
+  const stageNode = context.document.getElementById("beauticode-bg-stage");
+  assert.equal(stageNode.children.length, 1);
+  assert.equal(stageNode.children[0].dataset.bcRole, "current");
+  assert.equal(stageNode.children[0].querySelector("video"), null, "stalled decoder dropped");
+  assert.equal(stageNode.children[0].querySelector("img").isConnected, true);
+  assert.equal(documentElement.dataset.bcMedia, "video");
+  assert.equal(documentElement.dataset.bcVideoReady, "false");
+  assert.equal(documentElement.dataset.bcGeneration, "801");
+
+  // No renderer verdict ever reported failure.
+  assert.equal(
+    acknowledgements.some((body) => body.kind === "render" && body.ok === false),
+    false,
+  );
+});
+
+test("poster-first video acks stay ready and surface settle notes in status", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "beauticode-dsh-plugin-"));
+  const tokenFile = path.join(root, "token");
+  await fs.writeFile(tokenFile, TOKEN);
+  const plugin = await createPluginServer(tokenFile);
+  const events = await openEvents(plugin.origin, "client-video-warm-01");
+  t.after(async () => {
+    events.request.destroy();
+    events.response.destroy();
+    await plugin.dispose();
+    await fs.rm(root, { recursive: true, force: true });
+  });
+
+  const payload = {
+    generation: 31,
+    media: "video",
+    imageUrl: "http://127.0.0.1:45678/media/image?t=poster",
+    videoUrl: "http://127.0.0.1:45678/media/video?t=movie",
+    startAt: 0,
+  };
+  assert.equal((await fetch(`${plugin.origin}/__beauticode/apply`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  })).status, 200);
+
+  const headers = { Origin: plugin.origin, "content-type": "application/json" };
+  const ack = (body) =>
+    fetch(`${plugin.origin}/__beauticode/ack`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ clientId: "client-video-warm-01", ...body }),
+    });
+
+  // Poster-phase ack: ok and visible, but the first frame has not presented.
+  assert.equal((await ack({
+    kind: "render",
+    generation: 31,
+    media: "video",
+    ok: true,
+    visible: true,
+    videoReady: false,
+  })).status, 200);
+  let status = await (await fetch(`${plugin.origin}/__beauticode/status`, {
+    headers: { Authorization: `Bearer ${TOKEN}` },
+  })).json();
+  assert.equal(status.readyClients, 1);
+  assert.equal(status.failedClients, 0);
+  assert.equal(status.videoReadyClients, 0);
+  assert.equal(status.videoPendingClients, 1);
+  assert.equal(status.lastVideoError, null);
+  assert.equal(status.playback, null);
+
+  // A settle downgrade note rides along without failing the client.
+  assert.equal((await ack({
+    kind: "render",
+    generation: 31,
+    media: "video",
+    ok: true,
+    visible: true,
+    videoReady: false,
+    error: "视频预热未完成（已保留封面）：等待视频首帧超时",
+  })).status, 200);
+  status = await (await fetch(`${plugin.origin}/__beauticode/status`, {
+    headers: { Authorization: `Bearer ${TOKEN}` },
+  })).json();
+  assert.equal(status.readyClients, 1);
+  assert.equal(status.failedClients, 0, "a settle note must not become a renderer failure");
+  assert.equal(status.videoPendingClients, 1);
+  assert.match(status.lastVideoError, /保留封面/);
+
+  // The in-place upgrade flips the client to video-ready with playback.
+  assert.equal((await ack({
+    kind: "render",
+    generation: 31,
+    media: "video",
+    ok: true,
+    visible: true,
+    videoReady: true,
+    playback: {
+      currentTime: 1.25,
+      duration: 20,
+      hasVideo: true,
+      muted: true,
+      paused: false,
+      blocked: false,
+    },
+  })).status, 200);
+  status = await (await fetch(`${plugin.origin}/__beauticode/status`, {
+    headers: { Authorization: `Bearer ${TOKEN}` },
+  })).json();
+  assert.equal(status.videoReadyClients, 1);
+  assert.equal(status.videoPendingClients, 0);
+  assert.equal(status.lastVideoError, null);
+  assert.equal(status.playback.currentTime, 1.25);
+
+  // Legacy clients that never send videoReady still count as ready.
+  assert.equal((await ack({
+    kind: "render",
+    generation: 31,
+    media: "video",
+    ok: true,
+    visible: true,
+    playback: {
+      currentTime: 2,
+      duration: 20,
+      hasVideo: true,
+      muted: true,
+      paused: false,
+      blocked: false,
+    },
+  })).status, 200);
+  status = await (await fetch(`${plugin.origin}/__beauticode/status`, {
+    headers: { Authorization: `Bearer ${TOKEN}` },
+  })).json();
+  assert.equal(status.videoReadyClients, 1);
+  assert.equal(status.videoPendingClients, 0);
 });

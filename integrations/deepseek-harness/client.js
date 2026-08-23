@@ -17,6 +17,13 @@
   const IMAGE_MAX_ATTEMPTS = 2;
   const VIDEO_STARTUP_TIMEOUT_MS = CLIENT_APPLY_DEADLINE_MS;
   const VIDEO_PROBE_TIMEOUT_MS = 2_000;
+  // Phase-one playback acceptance window. A muted play() that is still pending
+  // after this only means the decoder is warming; the settle phase owns it.
+  const PLAY_ACCEPT_TIMEOUT_MS = 1_500;
+  // Phase-two budget for the committed video to present its first frame. It is
+  // deliberately far beyond any host deadline: a poster already committed, so
+  // slow first frames upgrade in place instead of failing the transaction.
+  const VIDEO_SETTLE_TIMEOUT_MS = 60_000;
   const DSH_STRUCTURE_TIMEOUT_MS = CLIENT_APPLY_DEADLINE_MS;
   const FRAME_FALLBACK_MS = 120;
   const VIDEO_FIRST_FRAME_PROGRESS_SEC = 0.03;
@@ -32,6 +39,7 @@
   let playbackBlocked = false;
   let currentSlot = null;
   let applyController = null;
+  let videoSettleController = null;
   const systemDarkMedia = globalThis.matchMedia?.("(prefers-color-scheme: dark)") ?? null;
   const reducedMotionMedia =
     globalThis.matchMedia?.("(prefers-reduced-motion: reduce)") ?? null;
@@ -298,10 +306,14 @@ html[data-bc-fish="true"] #root{opacity:0!important;visibility:hidden!important;
     };
   }
 
-  async function acknowledgeRender(payload, ok, visible, error = null) {
+  async function acknowledgeRender(payload, ok, visible, error = null, extra = {}) {
     if (activePayload === payload) {
       renderPhase = ok ? "ready" : "failed";
     }
+    // A committed video apply may still be settling: ok=true with
+    // videoReady=false means the poster is live and the first frame upgrades
+    // in place. Only ok=false is a renderer verdict the host will act on.
+    const videoReady = extra.videoReady !== false;
     await postAck({
       kind: "render",
       generation: payload.generation,
@@ -309,8 +321,9 @@ html[data-bc-fish="true"] #root{opacity:0!important;visibility:hidden!important;
       ok,
       visible,
       error,
+      ...(payload.media === "video" ? { videoReady } : {}),
       playback:
-        ok && committedPayload === payload && payload.media === "video"
+        ok && committedPayload === payload && payload.media === "video" && videoReady
           ? playbackSnapshot(activeVideo())
           : null,
     });
@@ -672,6 +685,13 @@ html[data-bc-fish="true"] #root{opacity:0!important;visibility:hidden!important;
   function waitForVideo(video, signal, timeoutMs = VIDEO_STARTUP_TIMEOUT_MS) {
     const frameReadyState = HTMLMediaElement.HAVE_CURRENT_DATA ?? 2;
     if (video.readyState >= frameReadyState) return Promise.resolve();
+    // A decoder error may fire before this waiter attaches — most notably
+    // between the poster commit's crossfade and the settle start. Honoring an
+    // already-set error keeps the settle phase from waiting out its full
+    // budget on media that has already failed.
+    if (video.error) {
+      return Promise.reject(new Error(describeVideoState(video, "MP4 加载或解码失败")));
+    }
     return new Promise((resolve, reject) => {
       let settled = false;
       const done = () => finish();
@@ -990,36 +1010,32 @@ html[data-bc-fish="true"] #root{opacity:0!important;visibility:hidden!important;
     return blocked;
   }
 
+  // Phase one only needs playback initiated. On a cold machine the muted
+  // play() promise can stay pending well past the apply deadline while the
+  // decoder warms; that is not a failure — the poster-first commit tolerates
+  // it and the settle phase owns the eventual outcome. Only an outright
+  // rejection (autoplay policy, detached element) fails the apply.
   async function startCandidatePlayback(video, signal, timeoutMs) {
     const playbackController = new AbortController();
     const parentAborted = () => playbackController.abort();
     signal?.addEventListener?.("abort", parentAborted, { once: true });
-    let timer = null;
+    let acceptTimer = null;
     let abortListener = null;
-    const playback = playWithPreference(video, playbackController.signal);
-    const deadline = new Promise((_, reject) => {
-      timer = setTimeout(() => {
-        reject(new Error(describeVideoState(video, "等待视频开始播放超时")));
-        playbackController.abort();
-      }, timeoutMs);
-      abortListener = () => reject(abortError());
+    const accepted = new Promise((resolve) => {
+      acceptTimer = setTimeout(() => resolve("accepted"), Math.max(1, timeoutMs));
+      abortListener = () => resolve("aborted");
       playbackController.signal.addEventListener("abort", abortListener, { once: true });
     });
     if (signal?.aborted) parentAborted();
+    const playback = playWithPreference(video, playbackController.signal);
+    // The settle phase owns late outcomes of an accepted-but-unresolved play().
+    void playback.catch?.(() => {});
     try {
-      // The play() promise itself resolves only after playback has started, so
-      // a second playing-event waiter would create an orphaned promise race.
-      return await Promise.race([playback, deadline]);
-    } catch (error) {
-      playbackController.abort();
-      try {
-        video.pause();
-      } catch {
-        /* best effort: disposeSlot will release src as the final guard */
-      }
-      throw error;
+      const outcome = await Promise.race([playback.then(() => "started"), accepted]);
+      if (outcome === "aborted") throw abortError();
+      return outcome;
     } finally {
-      if (timer) clearTimeout(timer);
+      clearTimeout(acceptTimer);
       signal?.removeEventListener?.("abort", parentAborted);
       if (abortListener) {
         playbackController.signal.removeEventListener("abort", abortListener);
@@ -1111,7 +1127,7 @@ html[data-bc-fish="true"] #root{opacity:0!important;visibility:hidden!important;
     return true;
   }
 
-  function updateCommittedDom(payload) {
+  function updateCommittedDom(payload, videoReady = true) {
     document.documentElement.dataset.bcGeneration = String(payload.generation);
     document.documentElement.removeAttribute("data-bc-pending-generation");
     if (payload.media === "clear") {
@@ -1122,8 +1138,13 @@ html[data-bc-fish="true"] #root{opacity:0!important;visibility:hidden!important;
     }
     document.documentElement.dataset.bcActive = "true";
     document.documentElement.dataset.bcMedia = payload.media;
-    if (payload.media === "video") document.documentElement.dataset.bcVideoReady = "true";
-    else document.documentElement.removeAttribute("data-bc-video-ready");
+    if (payload.media === "video") {
+      // "false" keeps the poster as the committed visual until the settle
+      // phase flips it after the first presented frame.
+      document.documentElement.dataset.bcVideoReady = videoReady ? "true" : "false";
+    } else {
+      document.documentElement.removeAttribute("data-bc-video-ready");
+    }
   }
 
   function discardCandidates() {
@@ -1240,7 +1261,7 @@ html[data-bc-fish="true"] #root{opacity:0!important;visibility:hidden!important;
     committedPayload = payload;
     const video = activeVideo();
     playbackBlocked = video?.dataset?.bcPlaybackBlocked === "true";
-    updateCommittedDom(payload);
+    updateCommittedDom(payload, slot.dataset.bcVideoReady === "true");
     syncGallery(payload);
   }
 
@@ -1249,7 +1270,7 @@ html[data-bc-fish="true"] #root{opacity:0!important;visibility:hidden!important;
     node?.removeAttribute("data-bc-transitioning");
     node?.removeAttribute("data-bc-empty");
     if (committedPayload && mountedCurrentSlot()) {
-      updateCommittedDom(committedPayload);
+      updateCommittedDom(committedPayload, currentSlot.dataset.bcVideoReady === "true");
       playbackBlocked = activeVideo()?.dataset?.bcPlaybackBlocked === "true";
       return;
     }
@@ -1369,40 +1390,29 @@ html[data-bc-fish="true"] #root{opacity:0!important;visibility:hidden!important;
       candidateVideo = video;
       video.src = payload.videoUrl;
       video.load();
-      // Start the real media request before the diagnostic Range probe. During
-      // a cold Chromium/decoder start, serial probing used part of the same
-      // eight-second budget without advancing the frame that users can see.
+      // Phase one gates only what the poster commit needs: the media source
+      // answers Range requests, the poster decodes, and playback was
+      // initiated. A cold decoder no longer fails the transaction here — the
+      // video upgrades from the committed poster in the settle phase, so a
+      // fresh machine that merely loads slowly can never time out.
       const sourceProbe = probeVideoSource(
         payload.videoUrl,
         signal,
         Math.min(VIDEO_PROBE_TIMEOUT_MS, remaining()),
       );
       const imageReady = loadImage(candidate, payload.imageUrl, signal, remaining());
-      // play() is deliberately started alongside media readiness. Chromium is
-      // allowed to ignore preload=auto for hidden/background media; waiting for
-      // canplay before play() creates a circular stall at readyState=0.
       await Promise.all([
         sourceProbe,
         imageReady,
-        waitForVideo(video, signal, remaining()),
-        startCandidatePlayback(video, signal, remaining()),
+        startCandidatePlayback(video, signal, Math.min(PLAY_ACCEPT_TIMEOUT_MS, remaining())),
       ]);
       throwIfAborted(signal);
-      const appliedStartAt = seekVideo(video, payload.startAt);
-      candidate.dataset.bcStartAt = String(appliedStartAt);
-      await waitForSeek(video, signal, remaining());
-      await waitForVideo(video, signal, remaining());
-      // Transaction success means one frame was actually presented. Longer
-      // three-frame stability remains useful for reusing an existing slot, but
-      // must not turn a healthy cold decoder into a false first-frame failure.
-      await waitForPresentedFrame(video, signal, remaining());
-      throwIfAborted(signal);
-      candidate.dataset.bcVideoReady = "true";
       await commitCandidate(payload, candidate, signal, remaining);
       committed = true;
-      const visible = video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && !video.paused;
-      await acknowledgeRender(payload, visible, visible, visible ? null : "视频未开始播放");
+      await acknowledgeRender(payload, true, true, null, { videoReady: false });
       await acknowledgeMode();
+      settleCommittedVideo(video, candidate, payload);
+      return;
     } catch (error) {
       if (candidateVideo && candidateVideo.parentElement !== candidate) {
         disposeVideo(candidateVideo);
@@ -1418,6 +1428,48 @@ html[data-bc-fish="true"] #root{opacity:0!important;visibility:hidden!important;
         error instanceof Error ? error.message : String(error),
       );
     }
+  }
+
+  // Phase two of a video apply. The poster is already committed and acked, so
+  // nothing here can roll the transaction back: a decoder that needs longer
+  // than any host deadline simply keeps the poster until the first frame
+  // presents, then upgrades the committed slot in place without a flash.
+  function settleCommittedVideo(video, slot, payload) {
+    videoSettleController?.abort();
+    const controller = new AbortController();
+    videoSettleController = controller;
+    const stillSettling = () => !controller.signal.aborted && mountedCurrentSlot() === slot;
+    void (async () => {
+      try {
+        await waitForVideo(video, controller.signal, VIDEO_SETTLE_TIMEOUT_MS);
+        throwIfAborted(controller.signal);
+        if (!stillSettling()) return;
+        const appliedStartAt = seekVideo(video, payload.startAt);
+        slot.dataset.bcStartAt = String(appliedStartAt);
+        await waitForSeek(video, controller.signal, VIDEO_SETTLE_TIMEOUT_MS);
+        await waitForVideo(video, controller.signal, VIDEO_SETTLE_TIMEOUT_MS);
+        await waitForPresentedFrame(video, controller.signal, VIDEO_SETTLE_TIMEOUT_MS);
+        if (!stillSettling()) return;
+        slot.dataset.bcVideoReady = "true";
+        updateCommittedDom(payload, true);
+        playbackBlocked = video.dataset?.bcPlaybackBlocked === "true";
+        await acknowledgeRender(payload, true, true, null, { videoReady: true });
+      } catch (error) {
+        if (isAbortError(error) || controller.signal.aborted || !stillSettling()) return;
+        // Keep the committed poster; drop the stalled decoder so a later apply
+        // or re-import starts from a clean media element.
+        disposeVideo(video);
+        video.remove?.();
+        slot.removeAttribute("data-bc-video-ready");
+        await acknowledgeRender(
+          payload,
+          true,
+          true,
+          `视频预热未完成（已保留封面）：${error instanceof Error ? error.message : String(error)}`,
+          { videoReady: false },
+        );
+      }
+    })();
   }
 
   function scheduleBackground(payload) {
@@ -1439,6 +1491,8 @@ html[data-bc-fish="true"] #root{opacity:0!important;visibility:hidden!important;
       return;
     }
     applyController?.abort();
+    videoSettleController?.abort();
+    videoSettleController = null;
     discardCandidates();
     const controller = new AbortController();
     applyController = controller;

@@ -13,6 +13,12 @@ export interface DshBridgeStatus {
   readyClients: number;
   failedClients: number;
   lastRenderError?: string | null;
+  /** ok-clients whose video first frame has presented (poster-first commits). */
+  videoReadyClients?: number;
+  /** ok-clients still showing the committed poster while the video settles. */
+  videoPendingClients?: number;
+  /** Diagnostic note from the latest settle downgrade (ok stays true). */
+  lastVideoError?: string | null;
   visibleClients: number;
   modeReadyClients: number;
   blockedClients: number;

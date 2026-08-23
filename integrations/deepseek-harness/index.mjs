@@ -173,12 +173,22 @@ function publicStatus(current, modes, clients, clientStates) {
   const failedAcks = activeAcks.filter(
     (ack) => ack.ok === false && typeof ack.error === "string" && ack.error,
   );
+  const readyAcks = activeAcks.filter((ack) => ack.ok === true);
+  // Poster-first video commits ack ok while the first frame still settles.
+  const videoPendingAcks = readyAcks.filter(
+    (ack) => ack.media === "video" && ack.videoReady === false,
+  );
   return {
     ok: true,
     connectedClients: clients.size,
     current,
-    readyClients: activeAcks.filter((ack) => ack.ok === true).length,
+    readyClients: readyAcks.length,
     failedClients: failedAcks.length,
+    videoReadyClients: readyAcks.length - videoPendingAcks.length,
+    videoPendingClients: videoPendingAcks.length,
+    lastVideoError:
+      videoPendingAcks.find((ack) => typeof ack.error === "string" && ack.error)?.error ??
+      null,
     lastRenderError:
       failedAcks.find((ack) => typeof ack.error === "string" && ack.error)?.error ??
       null,
@@ -555,7 +565,8 @@ export function apply(ctx, config = {}) {
               body.generation !== current.generation ||
               body.media !== current.media ||
               typeof body.ok !== "boolean" ||
-              typeof body.visible !== "boolean"
+              typeof body.visible !== "boolean" ||
+              (body.videoReady != null && typeof body.videoReady !== "boolean")
             ) {
               sendJson(res, 400, { ok: false, error: "渲染回执无效。" });
               return;
@@ -587,6 +598,9 @@ export function apply(ctx, config = {}) {
               ok: body.ok,
               visible: body.visible,
               error: typeof body.error === "string" ? body.error.slice(0, 300) : null,
+              // Poster-first commits ack ok with videoReady=false while the
+              // first frame still settles; absent means a legacy ready client.
+              videoReady: body.media !== "video" || body.videoReady !== false,
               playback,
             };
           } else if (body.kind === "mode") {
