@@ -1,3 +1,4 @@
+<!-- hello,starstreaming. -->
 <div align="center">
   <h1>beautiCode</h1>
   <img width="1672" height="941" alt="ChatGPT Image 2026年8月16日 10_58_15" src="https://github.com/user-attachments/assets/c943a0fb-ff48-4361-9e6f-c4b1521aee2b" />
