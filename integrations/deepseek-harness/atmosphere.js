@@ -1,4 +1,4 @@
-//hello,starstreaming.
+//hello,starstreaming
 (() => {
   "use strict";
 
