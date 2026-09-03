@@ -117,7 +117,7 @@ test("plugin injects a compact sidebar console script", async (t) => {
   assert.doesNotMatch(source, /data-act="infernal"/);
   assert.match(source, /data-act="gallery"/);
   assert.match(source, /builtin-gallery/);
-  assert.match(source, /insertBefore/);
+  assert.match(source, /footArea\.insertBefore\(host, settingsArea\)/);
   assert.match(source, /fileInput\.type = "file"/);
   assert.doesNotMatch(source, /#beauticode-console\{[^}]*color-scheme/);
 });
