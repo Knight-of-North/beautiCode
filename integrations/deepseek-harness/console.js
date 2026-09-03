@@ -128,12 +128,15 @@ body:not([data-ds-dark-theme]) #beauticode-console-pop{background:#f3f0e9;color:
 
   function place() {
     const settings = findSettingsTrigger();
-    if (!settings || !settings.parentElement) {
+    const row = settings?.parentElement;
+    const settingsArea = row?.parentElement;
+    const footArea = settingsArea?.parentElement;
+    if (!settings || !settingsArea || !footArea) {
       if (host.parentElement) host.remove();
       return;
     }
-    if (host.parentElement !== settings.parentElement || host.nextElementSibling !== settings) {
-      settings.parentElement.insertBefore(host, settings);
+    if (host.parentElement !== footArea || host.nextElementSibling !== settingsArea) {
+      footArea.insertBefore(host, settingsArea);
     }
     host.classList.toggle("rail", settings.getBoundingClientRect().width <= 40);
     if (!pop.hidden) placePop();
