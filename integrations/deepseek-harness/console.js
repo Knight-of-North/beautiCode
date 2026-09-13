@@ -126,11 +126,30 @@ body:not([data-ds-dark-theme]) #beauticode-console-pop{background:#f3f0e9;color:
     pop.style.bottom = `${Math.round(window.innerHeight - rect.top + 8)}px`;
   }
 
+  function isContents(node) {
+    if (!node) return false;
+    if (node.style?.display === "contents") return true;
+    if (typeof getComputedStyle === "function") {
+      try {
+        return getComputedStyle(node).display === "contents";
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  function layoutParent(node) {
+    let current = node?.parentElement ?? null;
+    while (current && isContents(current)) current = current.parentElement;
+    return current;
+  }
+
   function place() {
     const settings = findSettingsTrigger();
-    const row = settings?.parentElement;
-    const settingsArea = row?.parentElement;
-    const footArea = settingsArea?.parentElement;
+    const row = layoutParent(settings);
+    const settingsArea = layoutParent(row);
+    const footArea = layoutParent(settingsArea);
     if (!settings || !settingsArea || !footArea) {
       if (host.parentElement) host.remove();
       return;

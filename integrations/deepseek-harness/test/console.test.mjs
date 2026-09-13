@@ -4,10 +4,12 @@ import test from "node:test";
 import vm from "node:vm";
 
 /**
- * Minimal DOM for console.js placement. Mirrors DSH 0.1.2-alpha.5:
- * footArea > settingsArea > triggerRow (horizontal flex) > settings button.
- * Putting #beauticode-console inside triggerRow squeezes the settings button
- * to zero width, which is Issue #37's flicker loop.
+ * Minimal DOM for console.js placement. Mirrors DSH 0.1.2-alpha.5 through
+ * 0.1.5-rc.1: footArea > settingsArea > (optional display:contents slot) >
+ * triggerRow (horizontal flex) > settings button. Putting #beauticode-console
+ * inside triggerRow squeezes the settings button to zero width (Issue #37).
+ * Counting the contents wrapper as a layout parent inserts into the collapsed
+ * settingsArea row instead of footArea (Issue #39).
  */
 class FakeNode {
   constructor(tagName, document) {
@@ -210,6 +212,40 @@ function mountAlpha5Sidebar(document) {
   return { footArea, settingsArea, triggerRow, settings };
 }
 
+/**
+ * DSH 0.1.5-rc.1 collapsed rail: SlotOutlet wraps sidebar.settings in a
+ * display:contents [data-slot] node, and .settingsArea becomes a horizontal
+ * flex. Counting raw parentElement hops then inserts into that row — Issue #39.
+ */
+function mountCollapsedRailSidebar(document) {
+  const footArea = document.createElement("div");
+  footArea.id = "foot-area";
+  footArea.style.display = "flex";
+  footArea.style.flexDirection = "column";
+  const footerActions = document.createElement("div");
+  footerActions.id = "footer-actions";
+  const settingsArea = document.createElement("div");
+  settingsArea.id = "settings-area";
+  settingsArea.style.display = "flex";
+  const slot = document.createElement("div");
+  slot.id = "settings-slot";
+  slot.setAttribute("data-slot", "sidebar.settings");
+  slot.style.display = "contents";
+  const triggerRow = document.createElement("div");
+  triggerRow.id = "trigger-row";
+  triggerRow.style.display = "flex";
+  triggerRow.style.flexDirection = "row";
+  const settings = document.createElement("button");
+  settings.id = "dsh-settings";
+  settings.setAttribute("aria-haspopup", "dialog");
+  triggerRow.append(settings);
+  slot.append(triggerRow);
+  settingsArea.append(slot);
+  footArea.append(footerActions, settingsArea);
+  document.body.append(footArea);
+  return { footArea, footerActions, settingsArea, slot, triggerRow, settings };
+}
+
 async function loadConsole(document) {
   const source = await fs.readFile(new URL("../console.js", import.meta.url), "utf8");
   const ticks = [];
@@ -226,6 +262,7 @@ async function loadConsole(document) {
       return ticks.length;
     },
     fetch: async () => ({ ok: false, json: async () => ({}) }),
+    getComputedStyle: (el) => ({ display: el?.style?.display || "block" }),
   };
   context.window = context;
   context.globalThis = context;
@@ -270,5 +307,46 @@ test("console mounts above the settings area instead of inside the trigger row",
     assert.equal(snapshot.next, "settings-area");
     assert.equal(snapshot.settingsWidth, 36);
     assert.equal(snapshot.inTriggerRow, false);
+  }
+});
+
+test("console skips display:contents slot wrappers so collapsed rail stacks vertically", async () => {
+  const document = createConsoleDocument();
+  const { footArea, settingsArea, slot, triggerRow, settings } = mountCollapsedRailSidebar(document);
+  const runtime = await loadConsole(document);
+
+  const snapshots = [];
+  const capture = () => {
+    const host = document.getElementById("beauticode-console");
+    snapshots.push({
+      parent: host?.parentElement?.id ?? null,
+      next: host?.nextElementSibling?.id ?? null,
+      inSettingsArea: settingsArea.children.includes(host),
+      inSlot: slot.children.includes(host),
+      inTriggerRow: triggerRow.children.includes(host),
+      settingsWidth: settings.getBoundingClientRect().width,
+    });
+  };
+
+  capture();
+  for (let i = 0; i < 6; i += 1) {
+    runtime.tick();
+    capture();
+  }
+
+  const host = document.getElementById("beauticode-console");
+  assert.equal(host?.parentElement?.id, "foot-area");
+  assert.equal(host?.nextElementSibling?.id, "settings-area");
+  assert.equal(host.parentElement, footArea);
+  assert.equal(host.nextElementSibling, settingsArea);
+  assert.equal(settingsArea.children.map((child) => child.id).join(","), "settings-slot");
+  assert.equal(triggerRow.children.map((child) => child.id).join(","), "dsh-settings");
+  for (const snapshot of snapshots) {
+    assert.equal(snapshot.parent, "foot-area");
+    assert.equal(snapshot.next, "settings-area");
+    assert.equal(snapshot.inSettingsArea, false);
+    assert.equal(snapshot.inSlot, false);
+    assert.equal(snapshot.inTriggerRow, false);
+    assert.equal(snapshot.settingsWidth, 36);
   }
 });
