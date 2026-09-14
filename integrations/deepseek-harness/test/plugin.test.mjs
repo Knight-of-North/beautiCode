@@ -162,6 +162,19 @@ test("plugin injects its client script exactly once", async (t) => {
   assert.match(source, /:has\(#root \[data-phase="settling"\]\)/);
   assert.doesNotMatch(source, /:has\(#root \[data-phase="hero"\]\)/);
   assert.match(source, /#beauticode-bg-stage::after\{background:rgba\(0,0,0,\.42\)\}/);
+  const dimUserStage = source.indexOf(
+    'html[data-bc-dim-user="true"][data-bc-active="true"] #beauticode-bg-stage::after{background:rgba(0,0,0,var(--bc-dim))!important}',
+  );
+  const fishStage = source.indexOf(
+    'html[data-bc-fish="true"] #beauticode-bg-stage::after{background:transparent!important}',
+  );
+  assert.ok(dimUserStage > 0, "user dim veil must exist");
+  assert.ok(fishStage > dimUserStage, "fish veil must stay after user dim");
+  assert.match(
+    source,
+    /html\[data-bc-resolved-tone="light"\]\[data-bc-dim-user="true"\]\[data-bc-active="true"\] #beauticode-bg-stage::after\{background:rgba\(255,255,255,var\(--bc-dim\)\)!important\}/,
+  );
+  assert.match(source, /BeauticodeBackgroundDim/);
   assert.match(source, /\[class\*=\"_fade\"\]\{display:none!important\}/);
   assert.match(source, /data-bc-resolved-tone/);
   assert.match(source, /data-ds-dark-theme/);
@@ -279,6 +292,83 @@ test("browser client follows DSH appearance and does not overwrite it", async ()
   assert.equal(documentElement.dataset.bcResolvedTone, "light");
   assert.equal(documentElement.style.colorScheme, "light");
   assert.equal(body.hasAttribute("data-ds-dark-theme"), false);
+});
+
+test("browser client restores user dim from localStorage and can clear it", async () => {
+  const source = await fs.readFile(new URL("../client.js", import.meta.url), "utf8");
+  const store = new Map();
+  const localStorage = {
+    getItem: (key) => (store.has(key) ? store.get(key) : null),
+    setItem: (key, value) => {
+      store.set(key, String(value));
+    },
+    removeItem: (key) => {
+      store.delete(key);
+    },
+  };
+  const styleProps = { colorScheme: "light" };
+  const documentElement = {
+    dataset: {},
+    style: {
+      get colorScheme() {
+        return styleProps.colorScheme;
+      },
+      set colorScheme(value) {
+        styleProps.colorScheme = value;
+      },
+      setProperty(name, value) {
+        styleProps[name] = String(value);
+      },
+      removeProperty(name) {
+        delete styleProps[name];
+      },
+    },
+    removeAttribute(name) {
+      if (name === "data-bc-fish") delete this.dataset.bcFish;
+      if (name === "data-bc-dim-user") delete this.dataset.bcDimUser;
+    },
+  };
+  const context = {
+    crypto: { randomUUID: () => "client-dim-test" },
+    document: {
+      body: { hasAttribute: () => false, prepend() {} },
+      documentElement,
+      head: { append() {} },
+      createElement: () => ({ dataset: {}, style: {} }),
+      getElementById: () => null,
+      querySelector: () => null,
+    },
+    fetch: async () => ({ ok: true }),
+    HTMLMediaElement: { HAVE_CURRENT_DATA: 2 },
+    HTMLVideoElement: class {},
+    Image: class {},
+    localStorage,
+    matchMedia: () => ({ matches: false, addEventListener() {} }),
+    MutationObserver: class {
+      observe() {}
+    },
+    EventSource: class {},
+    queueMicrotask: (callback) => callback(),
+    setInterval: () => 0,
+  };
+  context.window = context;
+  context.globalThis = context;
+  vm.runInNewContext(source, context);
+
+  assert.equal(context.BeauticodeBackgroundDim.get(), null);
+  assert.equal(documentElement.dataset.bcDimUser, undefined);
+  assert.equal(styleProps["--bc-dim"], undefined);
+
+  assert.equal(context.BeauticodeBackgroundDim.set(0.3), 0.3);
+  assert.equal(documentElement.dataset.bcDimUser, "true");
+  assert.equal(styleProps["--bc-dim"], "0.3");
+  assert.equal(store.get("beauticode-dim"), "0.3");
+
+  assert.equal(context.BeauticodeBackgroundDim.clear(), null);
+  assert.equal(context.BeauticodeBackgroundDim.get(), null);
+  assert.equal(documentElement.dataset.bcDimUser, undefined);
+  assert.equal(styleProps["--bc-dim"], undefined);
+  assert.equal(store.has("beauticode-dim"), false);
 });
 
 test("browser client probes video Range access and explains CORS failures", async () => {
