@@ -30,6 +30,12 @@ body:not([data-ds-dark-theme]) #beauticode-console-pop{background:#f3f0e9;color:
 #beauticode-console-pop .bc-import small{display:block;color:#717579;font-size:10px;line-height:14px}
 #beauticode-console-pop .bc-arrow{font-size:16px;text-align:right}
 #beauticode-console-pop .bc-controls{display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid #c8c5be}
+#beauticode-console-pop .bc-dim{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:8px 0;border-bottom:1px solid #c8c5be}
+#beauticode-console-pop .bc-dim-label{color:#686d71;font:10px ui-monospace,"Cascadia Mono",monospace}
+#beauticode-console-pop .bc-dim-slider{-webkit-appearance:none;appearance:none;flex:1;min-width:72px;height:4px;margin:0;padding:0;background:#c8c5be;border-radius:0}
+#beauticode-console-pop .bc-dim-slider::-webkit-slider-runnable-track{height:4px;background:#c8c5be;border-radius:0}
+#beauticode-console-pop .bc-dim-slider::-webkit-slider-thumb{-webkit-appearance:none;width:10px;height:10px;margin-top:-3px;background:#252a30;border:0;border-radius:0;cursor:pointer}
+#beauticode-console-pop .bc-dim-value{min-width:2.6em;color:#686d71;font:10px/15px ui-monospace,"Cascadia Mono",monospace;text-align:right}
 #beauticode-console-pop .bc-link{cursor:pointer;height:auto;padding:0;border:0;background:transparent;color:#595e62;font-size:11px;line-height:18px;text-decoration:underline;text-underline-offset:3px}
 #beauticode-console-pop .bc-link:hover{color:#171a1d}
 #beauticode-console-pop .bc-theme-toggle{cursor:pointer;display:flex;align-items:center;justify-content:space-between;width:100%;height:31px;padding:8px 0 4px;border:0;background:transparent;color:#686d71;font:10px ui-monospace,"Cascadia Mono",monospace;letter-spacing:.08em;text-align:left}
@@ -84,6 +90,12 @@ body:not([data-ds-dark-theme]) #beauticode-console-pop{background:#f3f0e9;color:
     '<button type="button" class="bc-btn bc-link" data-act="clear">清除背景</button>' +
     '<button type="button" class="bc-btn bc-link" data-act="gallery">打开皮肤中心</button>' +
     "</div>" +
+    '<div class="bc-dim">' +
+    '<span class="bc-dim-label">阴影</span>' +
+    '<input type="range" class="bc-dim-slider" min="0" max="100" step="1" value="42" aria-label="背景阴影"/>' +
+    '<span class="bc-dim-value">自动</span>' +
+    '<button type="button" class="bc-btn bc-link" data-act="dim-reset" hidden>恢复默认</button>' +
+    "</div>" +
     '<div class="bc-themes" hidden>' +
     '<button type="button" class="bc-theme-toggle" aria-expanded="true"><span>SAVED / 00</span><span>−</span></button>' +
     '<div class="bc-theme-list" hidden></div>' +
@@ -99,14 +111,32 @@ body:not([data-ds-dark-theme]) #beauticode-console-pop{background:#f3f0e9;color:
   const trigger = host.querySelector(".bc-trigger");
   const statusEl = pop.querySelector(".bc-status");
   const soundBtn = pop.querySelector('[data-act="sound"]');
+  const dimSlider = pop.querySelector(".bc-dim-slider");
+  const dimValue = pop.querySelector(".bc-dim-value");
+  const dimReset = pop.querySelector('[data-act="dim-reset"]');
   const themesBox = pop.querySelector(".bc-themes");
   const themeToggle = pop.querySelector(".bc-theme-toggle");
   const themeList = pop.querySelector(".bc-theme-list");
   const msgEl = pop.querySelector(".bc-msg");
+  const AUTO_DIM_PERCENT = 42;
   let busy = false;
   let muted = true;
   let currentThemeId = "";
   let themesExpanded = true;
+
+  function renderDim() {
+    const current = globalThis.BeauticodeBackgroundDim?.get?.() ?? null;
+    if (current == null) {
+      dimSlider.value = String(AUTO_DIM_PERCENT);
+      dimValue.textContent = "自动";
+      dimReset.hidden = true;
+      return;
+    }
+    const percent = Math.round(current * 100);
+    dimSlider.value = String(percent);
+    dimValue.textContent = `${percent}%`;
+    dimReset.hidden = false;
+  }
 
   function findSettingsTrigger() {
     const buttons = [...document.querySelectorAll('button[aria-haspopup="dialog"]')];
@@ -477,6 +507,18 @@ body:not([data-ds-dark-theme]) #beauticode-console-pop{background:#f3f0e9;color:
       }),
     );
   });
+  dimSlider.addEventListener("input", () => {
+    const n = Number(dimSlider.value);
+    if (!Number.isFinite(n)) return;
+    globalThis.BeauticodeBackgroundDim?.set?.(n / 100);
+    renderDim();
+  });
+  dimReset.addEventListener("click", (event) => {
+    event.stopPropagation();
+    globalThis.BeauticodeBackgroundDim?.clear?.();
+    renderDim();
+  });
+  renderDim();
   themeToggle.addEventListener("click", (event) => {
     event.stopPropagation();
     themesExpanded = !themesExpanded;

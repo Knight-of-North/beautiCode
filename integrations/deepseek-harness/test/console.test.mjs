@@ -350,3 +350,19 @@ test("console skips display:contents slot wrappers so collapsed rail stacks vert
     assert.equal(snapshot.settingsWidth, 36);
   }
 });
+
+test("console pop includes a dim slider and restore-default control", async () => {
+  const document = createConsoleDocument();
+  mountAlpha5Sidebar(document);
+  await loadConsole(document);
+
+  const pop = document.getElementById("beauticode-console-pop");
+  assert.match(pop.innerHTML, /class="bc-dim-slider"/);
+  assert.match(pop.innerHTML, /type="range"/);
+  assert.match(pop.innerHTML, /恢复默认/);
+  assert.match(pop.innerHTML, /data-act="dim-reset"/);
+  assert.ok(pop.querySelector(".bc-dim-slider"));
+  assert.ok(pop.querySelector('[data-act="dim-reset"]'));
+  assert.equal(pop.querySelector(".bc-dim-value")?.textContent, "自动");
+  assert.equal(pop.querySelector('[data-act="dim-reset"]').hidden, true);
+});

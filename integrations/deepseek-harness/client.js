@@ -86,6 +86,24 @@ html[data-bc-active="true"]:has(#root [data-phase="active"]) #beauticode-bg-stag
 html[data-bc-active="true"]:has(#root [data-phase="settling"]) #beauticode-bg-stage::after{background:rgba(0,0,0,.42)}
 html[data-bc-resolved-tone="light"][data-bc-active="true"]:has(#root [data-phase="active"]) #beauticode-bg-stage::after,
 html[data-bc-resolved-tone="light"][data-bc-active="true"]:has(#root [data-phase="settling"]) #beauticode-bg-stage::after{background:rgba(255,255,255,.22)}
+html[data-bc-dim-user="true"][data-bc-active="true"]:has(#root [data-phase="active"]) body,
+html[data-bc-dim-user="true"][data-bc-active="true"]:has(#root [data-phase="settling"]) body{
+  --dsw-alias-bg-base:rgba(17,20,27,.10);
+  --dsw-alias-bg-layer-1:rgba(26,30,39,.28);
+  --dsw-alias-bg-layer-2:rgba(35,40,51,.32);
+  --dsw-alias-bg-overlay:rgba(17,20,27,.12);
+  --dsw-specific-sidebar-fill:rgba(23,27,35,.28);
+}
+html[data-bc-resolved-tone="light"][data-bc-dim-user="true"][data-bc-active="true"]:has(#root [data-phase="active"]) body,
+html[data-bc-resolved-tone="light"][data-bc-dim-user="true"][data-bc-active="true"]:has(#root [data-phase="settling"]) body{
+  --dsw-alias-bg-base:rgba(248,250,252,.12);
+  --dsw-alias-bg-layer-1:rgba(255,255,255,.28);
+  --dsw-alias-bg-layer-2:rgba(248,250,252,.32);
+  --dsw-alias-bg-overlay:rgba(255,255,255,.14);
+  --dsw-specific-sidebar-fill:rgba(255,255,255,.28);
+}
+html[data-bc-dim-user="true"][data-bc-active="true"] #beauticode-bg-stage::after{background:rgba(0,0,0,var(--bc-dim))!important}
+html[data-bc-resolved-tone="light"][data-bc-dim-user="true"][data-bc-active="true"] #beauticode-bg-stage::after{background:rgba(255,255,255,var(--bc-dim))!important}
 html[data-bc-fish="true"] #beauticode-bg-stage::after{background:transparent!important}
 #beauticode-bg-stage .beauticode-media-slot{position:absolute;inset:0;z-index:0;opacity:1;overflow:hidden;pointer-events:none;transition:opacity ${CROSSFADE_MS}ms ease;will-change:opacity}
 #beauticode-bg-stage .beauticode-media-slot[data-bc-role="current"]{z-index:1;opacity:1}
@@ -107,6 +125,75 @@ html[data-bc-active="true"] [class*="_fade"]{display:none!important}
 html[data-bc-fish="true"] #root{opacity:0!important;visibility:hidden!important;pointer-events:none!important}
 `;
   document.head.append(style);
+
+  const DIM_STORAGE_KEY = "beauticode-dim";
+  let userDim = null;
+
+  function clampDim(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n) || n < 0 || n > 1) return null;
+    return n;
+  }
+
+  function readStoredDim() {
+    try {
+      const raw = globalThis.localStorage?.getItem(DIM_STORAGE_KEY);
+      if (raw == null || raw === "") return null;
+      return clampDim(raw);
+    } catch {
+      return null;
+    }
+  }
+
+  function writeStoredDim(value) {
+    try {
+      if (value == null) globalThis.localStorage?.removeItem(DIM_STORAGE_KEY);
+      else globalThis.localStorage?.setItem(DIM_STORAGE_KEY, String(value));
+    } catch {
+      /* private mode / quota */
+    }
+  }
+
+  function applyUserDim(value) {
+    const root = document.documentElement;
+    if (value == null) {
+      delete root.dataset.bcDimUser;
+      root.removeAttribute("data-bc-dim-user");
+      root.style.removeProperty?.("--bc-dim");
+      return null;
+    }
+    root.dataset.bcDimUser = "true";
+    root.style.setProperty?.("--bc-dim", String(value));
+    return value;
+  }
+
+  function getUserDim() {
+    return userDim;
+  }
+
+  function setUserDim(value) {
+    const next = clampDim(value);
+    if (next == null) return userDim;
+    userDim = next;
+    writeStoredDim(next);
+    applyUserDim(next);
+    return next;
+  }
+
+  function clearUserDim() {
+    userDim = null;
+    writeStoredDim(null);
+    applyUserDim(null);
+    return null;
+  }
+
+  userDim = readStoredDim();
+  if (userDim != null) applyUserDim(userDim);
+  globalThis.BeauticodeBackgroundDim = {
+    get: getUserDim,
+    set: setUserDim,
+    clear: clearUserDim,
+  };
 
   // Chromium builds its media stack lazily; the first <video> of a fresh
   // profile pays decoder/GPU/audio init inside the first import's verify
