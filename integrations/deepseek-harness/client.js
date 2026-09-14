@@ -376,7 +376,12 @@ html[data-bc-fish="true"] #root{opacity:0!important;visibility:hidden!important;
   async function postAck(body) {
     await fetch("/__beauticode/ack", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      mode: "same-origin",
+      credentials: "same-origin",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${clientId}`,
+      },
       body: JSON.stringify({ clientId, ...body }),
     }).catch(() => {});
   }
