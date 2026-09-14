@@ -373,15 +373,17 @@ html[data-bc-fish="true"] #root{opacity:0!important;visibility:hidden!important;
     return video instanceof HTMLVideoElement ? video : null;
   }
 
+  // Same-origin receipt only — NOT an authenticated control API. clientId is
+  // a client-generated correlation id (see top of file), not a credential.
+  // The server enforces same-origin and binds this to a live SSE session for
+  // the clientId; it intentionally does not use authorized()/tokenFile,
+  // which is reserved for /apply, /mode, /status.
   async function postAck(body) {
     await fetch("/__beauticode/ack", {
       method: "POST",
       mode: "same-origin",
       credentials: "same-origin",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${clientId}`,
-      },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ clientId, ...body }),
     }).catch(() => {});
   }

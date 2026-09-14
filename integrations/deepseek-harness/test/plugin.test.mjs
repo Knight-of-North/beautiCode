@@ -1335,6 +1335,72 @@ test("authenticated apply reaches SSE client and same-origin ack becomes ready",
   });
 });
 
+test("ack endpoint enforces same-origin, method, and live-session binding without Authorization", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "beauticode-dsh-plugin-"));
+  const tokenFile = path.join(root, "token");
+  await fs.writeFile(tokenFile, TOKEN);
+  const plugin = await createPluginServer(tokenFile);
+  const events = await openEvents(plugin.origin, "ack-guard-client-01");
+  t.after(async () => {
+    events.request.destroy();
+    events.response.destroy();
+    await plugin.dispose();
+    await fs.rm(root, { recursive: true, force: true });
+  });
+
+  const applied = await fetch(`${plugin.origin}/__beauticode/apply`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+    body: JSON.stringify({ generation: 0, media: "image", imageUrl: "http://127.0.0.1:45678/media/image?t=1" }),
+  });
+  assert.equal(applied.status, 200);
+
+  const basicRenderAck = {
+    clientId: "ack-guard-client-01",
+    kind: "render",
+    generation: 0,
+    media: "image",
+    ok: true,
+    visible: true,
+  };
+
+  const missingOrigin = await fetch(`${plugin.origin}/__beauticode/ack`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(basicRenderAck),
+  });
+  assert.equal(missingOrigin.status, 403);
+
+  const crossOrigin = await fetch(`${plugin.origin}/__beauticode/ack`, {
+    method: "POST",
+    headers: { Origin: "http://evil.example", "content-type": "application/json" },
+    body: JSON.stringify(basicRenderAck),
+  });
+  assert.equal(crossOrigin.status, 403);
+
+  const wrongMethod = await fetch(`${plugin.origin}/__beauticode/ack`, {
+    method: "GET",
+    headers: { Origin: plugin.origin },
+  });
+  assert.equal(wrongMethod.status, 405);
+
+  const noSession = await fetch(`${plugin.origin}/__beauticode/ack`, {
+    method: "POST",
+    headers: { Origin: plugin.origin, "content-type": "application/json" },
+    body: JSON.stringify({ ...basicRenderAck, clientId: "no-such-client-id" }),
+  });
+  assert.equal(noSession.status, 400);
+  assert.equal((await noSession.json()).ok, false);
+
+  const happyPath = await fetch(`${plugin.origin}/__beauticode/ack`, {
+    method: "POST",
+    headers: { Origin: plugin.origin, "content-type": "application/json" },
+    body: JSON.stringify(basicRenderAck),
+  });
+  assert.equal(happyPath.status, 200);
+  assert.deepEqual(await happyPath.json(), { ok: true });
+});
+
 test("apply payload can carry Internal atmosphere to the browser client", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "beauticode-dsh-plugin-"));
   const tokenFile = path.join(root, "token");
