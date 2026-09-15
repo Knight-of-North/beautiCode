@@ -545,6 +545,11 @@ export function apply(ctx, config = {}) {
           sendJson(res, 200, publicStatus(current, modes, clients, clientStates));
         },
       }),
+      // Same-origin render/mode receipt from the injected browser client —
+      // deliberately NOT gated by authorized()/tokenFile like /apply, /mode,
+      // /status. Guarded by isSameOrigin() plus binding to a live SSE
+      // session for the given clientId; clientId is a public correlation
+      // id, not a secret.
       ctx.webServer.register({
         kind: "exact",
         path: "/__beauticode/ack",
