@@ -5,21 +5,24 @@
 
   const style = document.createElement("style");
   style.textContent = `
-#beauticode-gallery{position:fixed;inset:0;z-index:3000;display:flex;align-items:center;justify-content:center;background:rgba(11,13,18,.62)}
+#beauticode-gallery{position:fixed;inset:0;z-index:3000;display:flex;align-items:center;justify-content:center;background:var(--dsw-alias-bg-mask-1)}
 #beauticode-gallery[hidden]{display:none}
-#beauticode-gallery .bcg-panel{width:min(880px,calc(100vw - 32px));height:min(640px,calc(100vh - 32px));display:flex;flex-direction:column;border:1px solid rgba(255,255,255,.08);border-radius:18px;background:#2c323c;color:#e8eaed;box-shadow:0 16px 48px rgba(0,0,0,.4);overflow:hidden}
-body:not([data-ds-dark-theme]) #beauticode-gallery .bcg-panel{background:#fff;color:#1b1f24;border-color:rgba(0,0,0,.08)}
-#beauticode-gallery .bcg-head{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.08)}
-#beauticode-gallery .bcg-head h2{margin:0;font-size:15px;font-weight:600}
-#beauticode-gallery .bcg-head input,#beauticode-gallery .bcg-head select{height:32px;border:1px solid rgba(255,255,255,.1);border-radius:10px;background:rgba(255,255,255,.06);color:inherit;padding:0 8px}
+#beauticode-gallery .bcg-panel{width:min(880px,calc(100vw - 32px));height:min(640px,calc(100vh - 32px));display:flex;flex-direction:column;border:0;border-radius:20px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);box-shadow:var(--dsw-elevation-prominent);overflow:hidden}
+#beauticode-gallery .bcg-head{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:.5px solid var(--dsw-alias-border-l2)}
+#beauticode-gallery .bcg-head h2{margin:0;font-size:16px;font-weight:600;line-height:24px}
+#beauticode-gallery .bcg-head input,#beauticode-gallery .bcg-head select{height:32px;padding:0 8px;border:.5px solid var(--dsw-alias-border-l4);border-radius:10px;background:var(--dsw-specific-input-major);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px}
+#beauticode-gallery .bcg-head input:focus,#beauticode-gallery .bcg-head select:focus{outline:none;box-shadow:0 0 0 2px var(--dsw-alias-border-l3)}
 #beauticode-gallery .bcg-grid{flex:1;overflow:auto;padding:12px;display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;align-content:start}
-#beauticode-gallery .bcg-card{display:block;border:none;padding:0;border-radius:12px;overflow:hidden;background:#232830;color:inherit;text-align:left;cursor:pointer}
-#beauticode-gallery .bcg-card img{width:100%;aspect-ratio:16/10;object-fit:cover;display:block;background:#111}
-#beauticode-gallery .bcg-card span{display:block;padding:8px 10px;font-size:13px}
-#beauticode-gallery .bcg-msg,#beauticode-gallery .bcg-foot{padding:0 14px 12px;color:#9aa3ad;font-size:12px}
+#beauticode-gallery .bcg-card{display:block;border:.5px solid var(--dsw-alias-border-l4);padding:0;border-radius:14px;overflow:hidden;background:var(--dsw-alias-bg-module-platform);color:inherit;text-align:left;cursor:pointer}
+#beauticode-gallery .bcg-card:hover{background:var(--dsw-alias-interactive-bg-hover)}
+#beauticode-gallery .bcg-card img{width:100%;aspect-ratio:16/10;object-fit:cover;display:block;background:var(--dsw-alias-bg-skeleton)}
+#beauticode-gallery .bcg-card span{display:block;padding:8px 10px;font-size:13px;line-height:20px}
+#beauticode-gallery .bcg-msg,#beauticode-gallery .bcg-foot{padding:0 14px 12px;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}
 #beauticode-gallery .bcg-close{margin-left:auto}
-#beauticode-gallery .bcg-btn{height:32px;padding:0 10px;border:1px solid rgba(255,255,255,.1);border-radius:10px;background:rgba(255,255,255,.06);color:inherit;cursor:pointer}
-#beauticode-gallery .bcg-btn.primary{background:#4d6bfe;border-color:transparent}
+#beauticode-gallery .bcg-btn{height:32px;padding:0 12px;border:.5px solid var(--dsw-alias-border-l3);border-radius:10px;background:0 0;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;cursor:pointer}
+#beauticode-gallery .bcg-btn:hover{background:var(--dsw-alias-interactive-bg-hover)}
+#beauticode-gallery .bcg-btn.primary{background:var(--dsw-alias-button-primary-fill);border-color:transparent;color:var(--dsw-alias-label-primary-foreground)}
+#beauticode-gallery .bcg-btn.primary:hover{background:var(--dsw-alias-button-primary-hover)}
   `;
   document.head.append(style);
 
