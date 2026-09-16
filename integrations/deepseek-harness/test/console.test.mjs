@@ -231,13 +231,22 @@ class FakeNode {
 }
 
 function createConsoleDocument() {
+  const listeners = new Map();
   const document = {
     createElement(tagName) {
       const node = new FakeNode(tagName, document);
       if (tagName === "input") node.type = "";
       return node;
     },
-    addEventListener() {},
+    addEventListener(name, handler) {
+      const list = listeners.get(name) ?? [];
+      list.push(handler);
+      listeners.set(name, list);
+    },
+    /** Fires the document-level events the console listens for (fullscreenchange). */
+    dispatch(name) {
+      for (const handler of listeners.get(name) ?? []) handler({ type: name });
+    },
   };
   const documentElement = new FakeNode("html", document);
   const head = new FakeNode("head", document);
@@ -526,6 +535,68 @@ test("console page includes a dim slider and restore-default control", async () 
   assert.equal(page.querySelector('[data-act="dim-reset"]').hidden, true);
 });
 
+/**
+ * Fullscreen is the only thing a page may call to hide the browser's own chrome
+ * (tab strip, address bar), and browsers only honour the request from inside the
+ * user gesture — the same constraint the file picker has. Esc exits without ever
+ * touching our button, so the label has to follow the browser's state rather
+ * than what we last asked for.
+ */
+test("console toggles fullscreen and follows the browser's own state", async () => {
+  const document = createConsoleDocument();
+  mountSettingsDialog(document);
+  const calls = [];
+  let current = null;
+  document.documentElement.requestFullscreen = () => {
+    calls.push("enter");
+    current = document.documentElement;
+  };
+  document.exitFullscreen = () => {
+    calls.push("exit");
+    current = null;
+  };
+  Object.defineProperty(document, "fullscreenElement", {
+    get: () => current,
+    configurable: true,
+  });
+
+  await loadConsole(document);
+  const page = pageEl(document);
+  const row = page.querySelector('[data-row="fullscreen"]');
+  const button = page.querySelector('[data-act="fullscreen"]');
+  assert.ok(button, "expected a fullscreen control");
+  assert.equal(row.hidden, false, "the row is offered when the browser has the API");
+  assert.equal(button.textContent, "进入全屏");
+  assert.equal(button.getAttribute("aria-pressed"), "false");
+
+  button.click();
+  // No await: the request has to run in the same synchronous block as the gesture.
+  assert.equal(calls.join(" "), "enter", "the request runs inside the click handler");
+  document.dispatch("fullscreenchange");
+  assert.equal(button.textContent, "退出全屏");
+  assert.equal(button.getAttribute("aria-pressed"), "true");
+
+  button.click();
+  assert.equal(calls.join(" "), "enter exit");
+  document.dispatch("fullscreenchange");
+  assert.equal(button.textContent, "进入全屏");
+
+  // Esc is the browser's business: it flips the real state and fires the event,
+  // so a label driven by our own bookkeeping would go stale here.
+  current = document.documentElement;
+  assert.equal(button.textContent, "进入全屏", "nothing updates without the event");
+  document.dispatch("fullscreenchange");
+  assert.equal(button.textContent, "退出全屏");
+});
+
+test("console drops the fullscreen row when the browser has no such API", async () => {
+  const document = createConsoleDocument();
+  mountSettingsDialog(document);
+  await loadConsole(document);
+
+  assert.equal(pageEl(document).querySelector('[data-row="fullscreen"]').hidden, true);
+});
+
 test("console page follows the settings row recipe", async () => {
   const document = createConsoleDocument();
   mountSettingsDialog(document);
@@ -535,8 +606,8 @@ test("console page follows the settings row recipe", async () => {
   const html = page.innerHTML;
   // innerHTML parsing is flat in this harness, so nesting is asserted textually.
   assert.ok(html.indexOf('class="bc-row-text"') < html.indexOf('data-act="image"'));
-  assert.equal(page.querySelectorAll(".bc-row-title").length, 6);
-  assert.equal(page.querySelectorAll(".bc-row-desc").length, 6);
+  assert.equal(page.querySelectorAll(".bc-row-title").length, 7);
+  assert.equal(page.querySelectorAll(".bc-row-desc").length, 7);
   assert.ok(page.querySelector('[data-act="video"]'));
   assert.ok(page.querySelector('[data-act="sound"]'));
   assert.ok(page.querySelector('[data-act="clear"]'));

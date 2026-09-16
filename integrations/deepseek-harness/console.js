@@ -106,6 +106,11 @@ div[role="dialog"][aria-modal="true"][data-bc-page="on"] nav button[aria-current
     '<div class="bc-control"><button type="button" class="bc-btn bc-pill" data-act="video">选择视频</button></div></div>' +
     "</div>" +
     '<div class="bc-group">' +
+    '<div class="bc-row" data-row="fullscreen"><div class="bc-row-text">' +
+    '<span class="bc-row-title">全屏显示</span>' +
+    '<span class="bc-row-desc">隐藏浏览器标签页与地址栏；按 Esc 退出</span>' +
+    "</div>" +
+    '<div class="bc-control"><button type="button" class="bc-btn bc-pill" data-act="fullscreen" aria-pressed="false">进入全屏</button></div></div>' +
     '<div class="bc-row"><div class="bc-row-text">' +
     '<span class="bc-row-title">背景阴影</span>' +
     '<span class="bc-row-desc">压暗背景，让前景内容更清楚</span>' +
@@ -151,6 +156,8 @@ div[role="dialog"][aria-modal="true"][data-bc-page="on"] nav button[aria-current
   const dimSlider = page.querySelector(".bc-dim-slider");
   const dimValue = page.querySelector(".bc-dim-value");
   const dimReset = page.querySelector('[data-act="dim-reset"]');
+  const fullscreenRow = page.querySelector('[data-row="fullscreen"]');
+  const fullscreenBtn = page.querySelector('[data-act="fullscreen"]');
   const themesBox = page.querySelector(".bc-themes");
   const themeToggle = page.querySelector(".bc-theme-toggle");
   const themeList = page.querySelector(".bc-theme-list");
@@ -575,6 +582,58 @@ div[role="dialog"][aria-modal="true"][data-bc-page="on"] nav button[aria-current
     });
   }
 
+  // "Fullscreen" here means hiding the browser's own chrome — tab strip, address
+  // bar, toolbar — so the page reads as a standalone app instead of a tab. The
+  // Fullscreen API is the only thing a page is allowed to call for that, and
+  // browsers only honour the request from inside a user gesture, so the call has
+  // to stay synchronous in the click handler for exactly the reason the file
+  // picker above does. Esc always exits, which is why the button label is only
+  // a convenience: we re-read the real state instead of tracking our own.
+  const FULLSCREEN_ENTER = ["requestFullscreen", "webkitRequestFullscreen"];
+  const FULLSCREEN_EXIT = ["exitFullscreen", "webkitExitFullscreen"];
+  function callFullscreen(owner, names) {
+    for (const name of names) {
+      const fn = owner?.[name];
+      if (typeof fn !== "function") continue;
+      try {
+        return Promise.resolve(fn.call(owner));
+      } catch (error) {
+        return Promise.reject(error);
+      }
+    }
+    return null;
+  }
+  function fullscreenElement() {
+    return document.fullscreenElement || document.webkitFullscreenElement || null;
+  }
+  function renderFullscreen() {
+    const supported = FULLSCREEN_ENTER.some(
+      (name) => typeof document.documentElement?.[name] === "function",
+    );
+    // Nothing to offer on a browser without the API, so drop the row rather
+    // than leave a button that would do nothing.
+    fullscreenRow.hidden = !supported;
+    if (!supported) return;
+    const on = fullscreenElement() != null;
+    fullscreenBtn.textContent = on ? "退出全屏" : "进入全屏";
+    fullscreenBtn.classList.toggle("on", on);
+    fullscreenBtn.setAttribute("aria-pressed", on ? "true" : "false");
+  }
+  function toggleFullscreen() {
+    const on = fullscreenElement() != null;
+    const pending = callFullscreen(
+      on ? document : document.documentElement,
+      on ? FULLSCREEN_EXIT : FULLSCREEN_ENTER,
+    );
+    if (!pending) {
+      showMessage("当前浏览器不支持全屏显示。");
+      return;
+    }
+    pending.then(renderFullscreen, (error) => {
+      showMessage(error instanceof Error ? error.message : String(error));
+    });
+  }
+
   navButton.addEventListener("click", (event) => {
     event.stopPropagation();
     if (!pageActive) setPageActive(true);
@@ -637,6 +696,15 @@ div[role="dialog"][aria-modal="true"][data-bc-page="on"] nav button[aria-current
     renderDim();
   });
   renderDim();
+  fullscreenBtn.addEventListener("click", (event) => {
+    event.stopPropagation();
+    toggleFullscreen();
+  });
+  // Esc leaves fullscreen without going through our button, so the label is
+  // driven by the browser's state rather than by what we last asked for.
+  document.addEventListener("fullscreenchange", renderFullscreen);
+  document.addEventListener("webkitfullscreenchange", renderFullscreen);
+  renderFullscreen();
   themeToggle.addEventListener("click", (event) => {
     event.stopPropagation();
     themesExpanded = !themesExpanded;

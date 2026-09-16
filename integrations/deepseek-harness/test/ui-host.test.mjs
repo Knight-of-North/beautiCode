@@ -125,6 +125,10 @@ test("plugin injects the console script that joins the settings dialog", async (
   assert.doesNotMatch(source, /data-act="infernal"/);
   assert.match(source, /data-act="gallery"/);
   assert.match(source, /builtin-gallery/);
+  // Fullscreen hides the browser's own chrome, which is the only thing a page
+  // can do about the tab strip; the request must stay inside the gesture.
+  assert.match(source, /data-act="fullscreen"/);
+  assert.match(source, /requestFullscreen/);
   // The macOS picker fix has to survive in the served file even if the console
   // tests are ever weakened: input.click() must run inside the gesture, and the
   // input must be hidden off-screen rather than with display:none.
