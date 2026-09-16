@@ -32,6 +32,8 @@ export interface CodexHostApplierOptions {
   pollMs?: number;
   /** How long connect() may wait for a page target. */
   connectDeadlineMs?: number;
+  /** Sidebar console actions. Omit to skip injecting the 背景 entry. */
+  onConsoleRequest?: (request: Record<string, unknown>) => Promise<unknown>;
 }
 
 export interface ConnectedTarget {
@@ -59,7 +61,12 @@ export class CodexHostApplier implements HostApplier {
   private lastPayload: HostApplyPayload | null = null;
   private runtimeIife: string | null = null;
   private defaultCss: string | null = null;
+  private consoleSource: string | null = null;
   private closed = false;
+  private consoleReady = new WeakSet<CdpSession>();
+  private onConsoleRequest:
+    | ((request: Record<string, unknown>) => Promise<unknown>)
+    | null;
   /** Serialize inject+attach so watch ticks cannot thrash a cold video start. */
   private applyChain: Promise<void> = Promise.resolve();
   private applyInFlight = false;
@@ -83,6 +90,7 @@ export class CodexHostApplier implements HostApplier {
     this.requireAppProtocol = opts.requireAppProtocol ?? true;
     this.pollMs = opts.pollMs ?? 200;
     this.connectDeadlineMs = opts.connectDeadlineMs ?? 15_000;
+    this.onConsoleRequest = opts.onConsoleRequest ?? null;
   }
 
   get lastApplied(): HostApplyPayload | null {
@@ -102,10 +110,11 @@ export class CodexHostApplier implements HostApplier {
   }
 
   async ensureSources(): Promise<void> {
-    if (this.runtimeIife && this.defaultCss) return;
+    if (this.runtimeIife && this.defaultCss && this.consoleSource) return;
     const src = await loadRendererSource();
     this.runtimeIife = src.runtimeIife;
     this.defaultCss = src.cssText;
+    this.consoleSource = src.consoleSource;
   }
 
   /**
@@ -186,6 +195,7 @@ export class CodexHostApplier implements HostApplier {
             continue;
           }
           this.sessions.set(target.id, session);
+          await this.ensureConsole(session);
         } catch {
           session?.close();
           this.sessions.delete(target.id);
@@ -306,6 +316,7 @@ export class CodexHostApplier implements HostApplier {
             await setSessionBackgroundTone(session, this.backgroundTone).catch(
               () => false,
             );
+            await this.ensureConsole(session);
             ok += 1;
             continue;
           }
@@ -323,6 +334,7 @@ export class CodexHostApplier implements HostApplier {
             await setSessionBackgroundTone(session, this.backgroundTone).catch(
               () => false,
             );
+            await this.ensureConsole(session);
             ok += 1;
             continue;
           }
@@ -341,6 +353,7 @@ export class CodexHostApplier implements HostApplier {
           await setSessionBackgroundTone(session, this.backgroundTone).catch(
             () => false,
           );
+          await this.ensureConsole(session);
           ok += 1;
         } catch (err) {
           errors.push(
@@ -356,6 +369,63 @@ export class CodexHostApplier implements HostApplier {
     } finally {
       this.applyInFlight = false;
     }
+  }
+
+  private async ensureConsole(session: CdpSession): Promise<void> {
+    if (!this.onConsoleRequest || session.closed) return;
+    await this.ensureSources();
+    if (!this.consoleReady.has(session)) {
+      try {
+        await session.send("Runtime.addBinding", { name: "beauticodeConsole" });
+        session.on("Runtime.bindingCalled", (params) => {
+          void this.dispatchConsole(session, params);
+        });
+        this.consoleReady.add(session);
+      } catch {
+        return;
+      }
+    }
+    if (!this.consoleSource) return;
+    await session.evaluate(this.consoleSource).catch(() => null);
+  }
+
+  private async dispatchConsole(
+    session: CdpSession,
+    params: unknown,
+  ): Promise<void> {
+    if (!this.onConsoleRequest || session.closed) return;
+    const body =
+      params && typeof params === "object"
+        ? (params as { name?: string; payload?: string })
+        : null;
+    if (body?.name !== "beauticodeConsole" || typeof body.payload !== "string") {
+      return;
+    }
+    let request: { id?: unknown } = {};
+    try {
+      request = JSON.parse(body.payload) as { id?: unknown };
+    } catch {
+      return;
+    }
+    const id = typeof request.id === "string" ? request.id : "";
+    if (!id) return;
+    let ok = true;
+    let payload: unknown = { ok: false, error: "背景操作失败。" };
+    try {
+      payload = await this.onConsoleRequest(request);
+    } catch (error) {
+      ok = false;
+      payload = {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+        code: (error as { code?: string }).code || "",
+      };
+    }
+    await session
+      .evaluate(
+        `window.__beauticodeBridgeResult(${JSON.stringify(id)},${ok ? "true" : "false"},${JSON.stringify(payload)})`,
+      )
+      .catch(() => null);
   }
 
   /**
@@ -1034,6 +1104,7 @@ async function attachBlobVideoToSession(
   let lastError: unknown = null;
   while (Date.now() < deadline) {
     try {
+      await session.send("Page.bringToFront").catch(() => {});
       const inputReady = await session.evaluate<boolean>(
         `Boolean(window.__BEAUTICODE_BG__ && typeof window.__BEAUTICODE_BG__.ensureVideoInput === "function" && window.__BEAUTICODE_BG__.ensureVideoInput())`,
       );
@@ -1081,7 +1152,7 @@ async function attachBlobVideoToSession(
         await session
           .evaluate(
             `(async () => {
-          const v = document.querySelector("#beauticode-bg-stage video");
+          const v = document.querySelector("#beauticode-bg-stage video:last-of-type");
           if (!v) return false;
           try {
             v.muted = true;
@@ -1102,17 +1173,25 @@ async function attachBlobVideoToSession(
           .catch(() => false);
         return;
       }
-      const prepared = await session.evaluate<boolean>(`(() => {
-        const api = window.__BEAUTICODE_BG__;
-        const video = document.querySelector("#beauticode-bg-stage video");
-        return Boolean(video && video.src && !(api && api.videoFailed));
-      })()`);
-      if (prepared) return;
-      const failed = await session.evaluate<boolean>(
-        `Boolean(window.__BEAUTICODE_BG__ && window.__BEAUTICODE_BG__.videoFailed)`,
-      );
+      // Own-generation readiness only. A handed-off previous <video src>
+      // must not count as "this file is attached".
+      const snap = await session.evaluate<{
+        missingRuntime?: boolean;
+        videoReady?: boolean;
+        videoFailed?: boolean;
+        hasPlayableSrc?: boolean;
+      }>(SNAPSHOT_EXPRESSION);
+      if (
+        snap &&
+        !snap.missingRuntime &&
+        snap.videoReady &&
+        snap.hasPlayableSrc === true &&
+        !snap.videoFailed
+      ) {
+        return;
+      }
       // Runtime already reported failure — let verify surface it; don't loop.
-      if (failed) return;
+      if (snap?.videoFailed) return;
     } catch (err) {
       lastError = err;
     }

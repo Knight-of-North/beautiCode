@@ -7,6 +7,9 @@ import {
   assessReadiness,
   browserIdFromVersion,
   buildInjectionExpression,
+  slimCodexCdpPayload,
+  TINY_PNG_DATA_URL,
+  MAX_CDP_DATA_URL_CHARS,
   CodexHostApplier,
   isCandidatePageTarget,
   MemoryHostApplier,
@@ -23,6 +26,35 @@ import {
 } from "../dist/index.js";
 import { startMockCdp } from "./mock-cdp.js";
 import http from "node:http";
+
+test("slimCodexCdpPayload drops huge video posters and blob dataUrls", () => {
+  const huge = `data:image/png;base64,${"A".repeat(MAX_CDP_DATA_URL_CHARS + 10)}`;
+  const slim = slimCodexCdpPayload({
+    generation: 3,
+    media: "video",
+    imageDataUrl: huge,
+    imageUrl: null,
+    video: {
+      mode: "blob",
+      localPath: "C:\\tmp\\a.mp4",
+      dataUrl: "data:video/mp4;base64,AAAA",
+    },
+    cssText: "",
+  });
+  assert.equal(slim.imageDataUrl, TINY_PNG_DATA_URL);
+  assert.equal(slim.video?.mode, "blob");
+  assert.equal(slim.video?.localPath, "C:\\tmp\\a.mp4");
+  assert.equal("dataUrl" in (slim.video ?? {}), false);
+  const image = slimCodexCdpPayload({
+    generation: 3,
+    media: "image",
+    imageDataUrl: huge,
+    imageUrl: null,
+    video: null,
+    cssText: "",
+  });
+  assert.equal(image.imageDataUrl, huge);
+});
 
 test("buildInjectionExpression JSON-encodes payload args", () => {
   const runtime = "((a,b,c,d,e,f)=>{return {a,b,c,d,e,f}})";
@@ -582,6 +614,7 @@ test("BeautiSession applies image against mock CDP", async () => {
     assert.equal(st.manifest.background?.type, "image");
     const reapplied = await session.reapply();
     assert.equal(reapplied.ok, true, reapplied.ok ? "" : reapplied.error);
+    assert.equal(mock.state.consoleInstalled, true);
     const clear = await session.apply({ type: "clear" });
     assert.equal(clear.ok, true, clear.ok ? "" : clear.error);
   } finally {
@@ -743,6 +776,14 @@ test("fish mode CSS and runtime expose data-bc-fish helpers", async () => {
   assert.match(runtime, /pendingStartAt/);
   assert.match(runtime, /isTaskOrProjectView/);
   assert.match(runtime, /detectWorking/);
+  // Inject must finish apply() before returning; otherwise CDP blob attach
+  // races the stage rebuild and every video import fails verify.
+  assert.match(runtime, /window\.__BEAUTICODE_BG__ = api;/);
+  assert.match(runtime, /return Promise\.resolve\(\)\s*\.then\(apply\)/);
+  assert.doesNotMatch(
+    runtime,
+    /Promise\.resolve\(\)\s*\.then\(apply\)\s*\.catch\([\s\S]{0,240}\)\s*;\s*return \{ installed: true/,
+  );
   assert.doesNotMatch(runtime, /isAgentBusy/);
   assert.match(css, /#beauticode-bg-stage::before/);
   assert.match(

@@ -25,6 +25,14 @@ export async function startMockCdp(opts = {}) {
     if (expression.includes("hasBody") && expression.includes("protocol")) {
       return { hasBody: s.body, protocol: s.protocol };
     }
+    if (
+      expression.includes("__beauticodeConsoleLoaded") ||
+      expression.includes("id = \"beauticode-console\"") ||
+      expression.includes("id=\"beauticode-console\"")
+    ) {
+      s.consoleInstalled = true;
+      return true;
+    }
 
     // Injection wraps the runtime source then ends with
     // `)(css, imageDataUrl, video, generation, imageUrl, forceRebuild)`.
@@ -320,6 +328,10 @@ export async function startMockCdp(opts = {}) {
       if (!msg.id || !msg.method) return;
 
       if (msg.method === "Runtime.enable" || msg.method === "Page.enable") {
+        ws.send(JSON.stringify({ id: msg.id, result: {} }));
+        return;
+      }
+      if (msg.method === "Runtime.addBinding") {
         ws.send(JSON.stringify({ id: msg.id, result: {} }));
         return;
       }

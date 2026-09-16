@@ -31,6 +31,9 @@ export {
 export {
   buildInjectionExpression,
   loadRendererSource,
+  slimCodexCdpPayload,
+  TINY_PNG_DATA_URL,
+  MAX_CDP_DATA_URL_CHARS,
 } from "./payload.js";
 
 export {

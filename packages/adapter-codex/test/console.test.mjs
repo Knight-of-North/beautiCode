@@ -1,0 +1,289 @@
+import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import test from "node:test";
+import vm from "node:vm";
+
+/**
+ * Minimal DOM for console.js placement. Mirrors DSH 0.1.2-alpha.5 through
+ * 0.1.5-rc.1: footArea > settingsArea > (optional display:contents slot) >
+ * triggerRow (horizontal flex) > settings button. Putting #beauticode-console
+ * inside triggerRow squeezes the settings button to zero width (Issue #37).
+ * Counting the contents wrapper as a layout parent inserts into the collapsed
+ * settingsArea row instead of footArea (Issue #39).
+ */
+class FakeNode {
+  constructor(tagName, document) {
+    this.tagName = String(tagName).toUpperCase();
+    this.document = document;
+    this.id = "";
+    this.className = "";
+    this.parentElement = null;
+    this.children = [];
+    this.attributes = new Map();
+    this.dataset = {};
+    this.style = {};
+    this.hidden = false;
+    this._innerHTML = "";
+    this.textContent = "";
+    this.listeners = new Map();
+    this.classList = {
+      toggle: (name, force) => {
+        const names = new Set(this.className.split(/\s+/).filter(Boolean));
+        const on = force === undefined ? !names.has(name) : Boolean(force);
+        if (on) names.add(name);
+        else names.delete(name);
+        this.className = [...names].join(" ");
+        return on;
+      },
+    };
+  }
+
+  get nextElementSibling() {
+    if (!this.parentElement) return null;
+    const siblings = this.parentElement.children;
+    return siblings[siblings.indexOf(this) + 1] ?? null;
+  }
+
+  get previousElementSibling() {
+    if (!this.parentElement) return null;
+    const siblings = this.parentElement.children;
+    const index = siblings.indexOf(this);
+    return index > 0 ? siblings[index - 1] ?? null : null;
+  }
+
+  setAttribute(name, value) {
+    this.attributes.set(name, String(value));
+    if (name === "id") this.id = String(value);
+    if (name === "class") this.className = String(value);
+    if (name.startsWith("data-")) {
+      const key = name
+        .slice(5)
+        .replace(/-([a-z])/g, (_all, ch) => ch.toUpperCase());
+      this.dataset[key] = String(value);
+    }
+  }
+
+  getAttribute(name) {
+    if (name === "id") return this.id || null;
+    if (name === "class") return this.className || null;
+    return this.attributes.get(name) ?? null;
+  }
+
+  hasAttribute(name) {
+    return this.getAttribute(name) != null;
+  }
+
+  set innerHTML(html) {
+    this._innerHTML = String(html);
+    for (const child of [...this.children]) child.remove();
+    const re = /<([a-z0-9]+)([^>]*)>/gi;
+    let match;
+    while ((match = re.exec(this._innerHTML))) {
+      const tag = match[1].toLowerCase();
+      if (["svg", "path", "rect", "circle", "strong", "small", "h2"].includes(tag)) {
+        continue;
+      }
+      const attrs = match[2];
+      const classMatch = attrs.match(/class="([^"]*)"/);
+      if (tag === "span" && !classMatch) continue;
+      const child = this.document.createElement(tag);
+      if (classMatch) child.className = classMatch[1];
+      for (const attr of attrs.matchAll(/([a-z0-9:-]+)="([^"]*)"/gi)) {
+        if (attr[1] === "class") continue;
+        child.setAttribute(attr[1], attr[2]);
+      }
+      this.append(child);
+    }
+  }
+
+  get innerHTML() {
+    return this._innerHTML;
+  }
+
+  append(...nodes) {
+    for (const node of nodes) {
+      node.remove();
+      node.parentElement = this;
+      this.children.push(node);
+    }
+  }
+
+  insertBefore(node, ref) {
+    node.remove();
+    node.parentElement = this;
+    const index = ref ? this.children.indexOf(ref) : -1;
+    if (index >= 0) this.children.splice(index, 0, node);
+    else this.children.push(node);
+    return node;
+  }
+
+  remove() {
+    if (!this.parentElement) return;
+    const siblings = this.parentElement.children;
+    const index = siblings.indexOf(this);
+    if (index >= 0) siblings.splice(index, 1);
+    this.parentElement = null;
+  }
+
+  addEventListener(name, handler) {
+    const list = this.listeners.get(name) ?? [];
+    list.push(handler);
+    this.listeners.set(name, list);
+  }
+
+  contains(node) {
+    for (let current = node; current; current = current.parentElement) {
+      if (current === this) return true;
+    }
+    return false;
+  }
+
+  matches(selector) {
+    const attr = selector.match(/^(\w+)?\[([^=\]]+)=["']([^"']+)["']\]$/);
+    if (attr) {
+      const [, tag, name, value] = attr;
+      if (tag && this.tagName !== tag.toUpperCase()) return false;
+      return this.getAttribute(name) === value;
+    }
+    if (selector.startsWith(".")) {
+      return this.className.split(/\s+/).includes(selector.slice(1));
+    }
+    if (selector.startsWith("#")) return this.id === selector.slice(1);
+    return this.tagName === selector.toUpperCase();
+  }
+
+  querySelectorAll(selector) {
+    const parts = selector.split(",").map((part) => part.trim()).filter(Boolean);
+    if (parts.length > 1) {
+      const seen = new Set();
+      const matches = [];
+      for (const part of parts) {
+        for (const node of this.querySelectorAll(part)) {
+          if (!seen.has(node)) {
+            seen.add(node);
+            matches.push(node);
+          }
+        }
+      }
+      return matches;
+    }
+    const matches = [];
+    for (const child of this.children) {
+      if (child.matches(selector)) matches.push(child);
+      matches.push(...child.querySelectorAll(selector));
+    }
+    return matches;
+  }
+
+  querySelector(selector) {
+    return this.querySelectorAll(selector)[0] ?? null;
+  }
+
+  getBoundingClientRect() {
+    if (this.getAttribute("aria-haspopup") !== "dialog") {
+      return { width: 36, height: 36, left: 8, top: 724, bottom: 760 };
+    }
+    const squeezed = this.parentElement?.children.some(
+      (child) => child.id === "beauticode-console",
+    );
+    if (squeezed) {
+      return { width: 0, height: 0, left: 8, top: 0, bottom: 0 };
+    }
+    return { width: 36, height: 36, left: 8, top: 724, bottom: 760 };
+  }
+}
+
+function createConsoleDocument() {
+  const document = {
+    createElement(tagName) {
+      const node = new FakeNode(tagName, document);
+      if (tagName === "input") node.type = "";
+      return node;
+    },
+    addEventListener() {},
+  };
+  const documentElement = new FakeNode("html", document);
+  const head = new FakeNode("head", document);
+  const body = new FakeNode("body", document);
+  document.documentElement = documentElement;
+  document.head = head;
+  document.body = body;
+  documentElement.append(head, body);
+  document.querySelectorAll = (selector) => documentElement.querySelectorAll(selector);
+  document.getElementById = (id) => documentElement.querySelector(`#${id}`);
+  return document;
+}
+
+function mountCodexSidebar(document) {
+  const nav = document.createElement("nav");
+  nav.id = "codex-rail";
+  for (const label of ["新对话", "Pull Request", "定时任务", "插件", "探索"]) {
+    const button = document.createElement("button");
+    button.id = `item-${label}`;
+    button.textContent = label;
+    nav.append(button);
+  }
+  document.body.append(nav);
+  return { nav, explore: nav.querySelectorAll("button")[4] };
+}
+
+async function loadConsole(document) {
+  const source = await fs.readFile(
+    new URL("../src/renderer/console.js", import.meta.url),
+    "utf8",
+  );
+  const ticks = [];
+  const pending = new Map();
+  const context = {
+    window: null,
+    document,
+    crypto: { randomUUID: () => "test-id" },
+    MutationObserver: class {
+      observe() {}
+    },
+    addEventListener() {},
+    innerHeight: 800,
+    setInterval: (fn) => {
+      ticks.push(fn);
+      return ticks.length;
+    },
+    getComputedStyle: (el) => ({ display: el?.style?.display || "block" }),
+  };
+  context.window = context;
+  context.globalThis = context;
+  context.window.__beauticodeBridgePending = pending;
+  vm.runInNewContext(source, context);
+  return {
+    tick() {
+      for (const fn of ticks) fn();
+    },
+  };
+}
+
+test("console mounts below 探索 in the Codex rail", async () => {
+  const document = createConsoleDocument();
+  const { nav, explore } = mountCodexSidebar(document);
+  const runtime = await loadConsole(document);
+
+  for (let i = 0; i < 4; i += 1) runtime.tick();
+
+  const host = document.getElementById("beauticode-console");
+  assert.equal(host?.parentElement?.id, "codex-rail");
+  assert.equal(host?.previousElementSibling, explore);
+  assert.equal(nav.children.map((child) => child.id || child.textContent).join(","), "item-新对话,item-Pull Request,item-定时任务,item-插件,item-探索,beauticode-console");
+});
+
+test("console pop keeps DSH 背景清单 controls", async () => {
+  const document = createConsoleDocument();
+  mountCodexSidebar(document);
+  await loadConsole(document);
+
+  const pop = document.getElementById("beauticode-console-pop");
+  assert.match(pop.innerHTML, /背景清单/);
+  assert.match(pop.innerHTML, /导入图片/);
+  assert.match(pop.innerHTML, /导入视频/);
+  assert.match(pop.innerHTML, /打开皮肤中心/);
+  assert.match(pop.innerHTML, /class="bc-dim-slider"/);
+  assert.match(pop.innerHTML, /恢复默认/);
+  assert.equal(pop.querySelector(".bc-dim-value")?.textContent, "自动");
+});

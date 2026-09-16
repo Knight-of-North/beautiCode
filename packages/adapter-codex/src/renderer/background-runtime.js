@@ -1453,6 +1453,12 @@
           /* CDP attach is the real path */
         }
       }
+      // If CDP already stuffed the input (attach raced ahead of apply),
+      // consume it on this generation's <video> instead of leaving an empty shell.
+      const input = document.getElementById(VIDEO_INPUT_ID);
+      if (input && input.files && input.files[0]) {
+        return doAttachVideoFile();
+      }
       return;
     }
 
@@ -1804,13 +1810,18 @@
   };
 
   window.__BEAUTICODE_BG__ = api;
-  Promise.resolve()
+  // Runtime.evaluate(awaitPromise) must wait until the stage exists.
+  // Returning {installed} immediately used to let CDP setFileInputFiles
+  // attach a blob, then this apply() rebuilt <video> and threw it away —
+  // every Codex video import then sat in verify until the console timed out.
+  return Promise.resolve()
     .then(apply)
+    .then(() => ({ installed: true, generation: gen }))
     .catch((err) => {
       if (isCurrent()) {
         imageFailed = true;
         markFailed(err);
       }
+      return { installed: true, generation: gen };
     });
-  return { installed: true, generation: gen };
 })
