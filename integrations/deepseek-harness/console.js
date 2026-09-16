@@ -52,7 +52,7 @@
 #beauticode-console-pop[data-busy="true"] .bc-title::before{content:"";display:inline-block;width:6px;height:6px;margin-right:6px;border-radius:50%;background:var(--dsw-alias-state-business-primary);animation:bc-pulse .9s steps(2,end) infinite}
 #beauticode-console-pop .bc-msg{margin:4px 0 0;padding:0 8px 6px;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;max-height:3.6em;overflow:hidden}
 @keyframes bc-pulse{50%{opacity:.25}}
-#beauticode-console-file{display:none !important}
+#beauticode-console-file{position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:0;pointer-events:none}
 #beauticode-name-dialog{position:fixed;inset:0;z-index:3000;display:grid;place-items:center;padding:24px;background:var(--dsw-alias-bg-mask-1);font:inherit}
 #beauticode-name-dialog .bc-name-card{display:flex;flex-direction:column;gap:10px;width:min(380px,calc(100vw - 48px));padding:20px;border:0;border-radius:20px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);box-shadow:var(--dsw-elevation-prominent)}
 #beauticode-name-dialog .bc-name-title{margin:0;font-size:16px;font-weight:600;line-height:24px}
@@ -132,6 +132,11 @@
   let muted = true;
   let currentThemeId = "";
   let themesExpanded = true;
+  // /ui/status reports whether the host lets the browser upload a managed copy.
+  // It is true on every non-Windows platform, where /ui/pick can only answer
+  // native_picker_unavailable. Cached here so the import buttons can decide
+  // synchronously, inside the user gesture.
+  let managedUploadAllowed = false;
 
   function renderDim() {
     const current = globalThis.BeauticodeBackgroundDim?.get?.() ?? null;
@@ -224,6 +229,7 @@
       statusEl.textContent = data?.error || "未就绪";
       return;
     }
+    managedUploadAllowed = data?.importPolicy?.managedUploadAllowed === true;
     const label =
       data.atmosphere === "gallery"
         ? "画窗"
@@ -483,11 +489,25 @@
     event.stopPropagation();
     setOpen(pop.hidden);
   });
+  // Safari (and WebKit generally) only opens a file picker when input.click()
+  // runs synchronously inside the user-gesture handler, and refuses to open one
+  // for an input hidden with display:none. On platforms that allow a managed
+  // upload, open the picker right here rather than asking /ui/pick first: that
+  // round trip pushed the click past the gesture, so the picker never appeared.
+  function startImport(kind) {
+    if (!managedUploadAllowed) {
+      void run(() => pickAndImport(kind));
+      return;
+    }
+    fileInput.accept = kind === "video" ? VIDEO_ACCEPT : IMAGE_ACCEPT;
+    fileInput.dataset.compatibilityUpload = "true";
+    fileInput.click();
+  }
   pop.querySelector('[data-act="image"]').addEventListener("click", () => {
-    void run(() => pickAndImport("image"));
+    startImport("image");
   });
   pop.querySelector('[data-act="video"]').addEventListener("click", () => {
-    void run(() => pickAndImport("video"));
+    startImport("video");
   });
   pop.querySelector('[data-act="gallery"]').addEventListener("click", (event) => {
     event.stopPropagation();

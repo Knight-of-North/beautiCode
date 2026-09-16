@@ -124,6 +124,13 @@ class FakeNode {
     this.listeners.set(name, list);
   }
 
+  click() {
+    this.clicks = (this.clicks ?? 0) + 1;
+    for (const handler of this.listeners.get("click") ?? []) {
+      handler({ target: this, stopPropagation() {} });
+    }
+  }
+
   contains(node) {
     for (let current = node; current; current = current.parentElement) {
       if (current === this) return true;
@@ -246,7 +253,7 @@ function mountCollapsedRailSidebar(document) {
   return { footArea, footerActions, settingsArea, slot, triggerRow, settings };
 }
 
-async function loadConsole(document) {
+async function loadConsole(document, { fetch: fetchImpl } = {}) {
   const source = await fs.readFile(new URL("../console.js", import.meta.url), "utf8");
   const ticks = [];
   const context = {
@@ -261,7 +268,13 @@ async function loadConsole(document) {
       ticks.push(fn);
       return ticks.length;
     },
-    fetch: async () => ({ ok: false, json: async () => ({}) }),
+    // console.js request() builds a timeout guard on every call; without these
+    // the guard throws and refresh() falls back to its error branch, so the
+    // status payload never reaches renderStatus().
+    AbortController,
+    setTimeout,
+    clearTimeout,
+    fetch: fetchImpl ?? (async () => ({ ok: false, json: async () => ({}) })),
     getComputedStyle: (el) => ({ display: el?.style?.display || "block" }),
   };
   context.window = context;
@@ -365,4 +378,69 @@ test("console pop includes a dim slider and restore-default control", async () =
   assert.ok(pop.querySelector('[data-act="dim-reset"]'));
   assert.equal(pop.querySelector(".bc-dim-value")?.textContent, "自动");
   assert.equal(pop.querySelector('[data-act="dim-reset"]').hidden, true);
+});
+
+const flushAsync = async () => {
+  for (let i = 0; i < 4; i += 1) await new Promise((resolve) => setImmediate(resolve));
+};
+
+/**
+ * Safari (and WebKit generally) only opens a file picker when input.click()
+ * runs synchronously inside the user-gesture handler; a click deferred past an
+ * await silently does nothing. On every non-Windows platform /ui/pick can only
+ * answer native_picker_unavailable, so asking it first put the fallback click
+ * behind a round trip and the picker never appeared.
+ */
+test("console opens the file picker inside the click when managed upload is allowed", async () => {
+  const document = createConsoleDocument();
+  mountAlpha5Sidebar(document);
+  await loadConsole(document, {
+    fetch: async () => ({
+      ok: true,
+      json: async () => ({
+        ok: true,
+        importPolicy: { nativeLocalRequired: false, managedUploadAllowed: true },
+      }),
+    }),
+  });
+
+  document.querySelectorAll(".bc-trigger")[0].click();
+  await flushAsync();
+
+  const fileInput = document.getElementById("beauticode-console-file");
+  const imageButton = document.querySelectorAll('[data-act="image"]')[0];
+  assert.ok(imageButton, "image import button is wired");
+
+  imageButton.click();
+  // No await between the click and these assertions: the picker must open in
+  // the same synchronous block as the gesture, not after a round trip.
+  assert.equal(fileInput.clicks, 1, "file picker opens from the click handler");
+  assert.match(fileInput.accept, /image\/jpeg/);
+  assert.equal(fileInput.dataset.compatibilityUpload, "true");
+});
+
+test("console leaves the browser picker closed when the host picker is required", async () => {
+  const document = createConsoleDocument();
+  mountAlpha5Sidebar(document);
+  await loadConsole(document, {
+    fetch: async () => ({
+      ok: true,
+      json: async () => ({
+        ok: true,
+        cancelled: true,
+        importPolicy: { nativeLocalRequired: true, managedUploadAllowed: false },
+      }),
+    }),
+  });
+
+  document.querySelectorAll(".bc-trigger")[0].click();
+  await flushAsync();
+
+  const fileInput = document.getElementById("beauticode-console-file");
+  const imageButton = document.querySelectorAll('[data-act="image"]')[0];
+  imageButton.click();
+  assert.equal(fileInput.clicks ?? 0, 0, "the host picker path opens no browser picker");
+
+  await flushAsync();
+  assert.equal(fileInput.clicks ?? 0, 0, "and none appears once the round trip settles");
 });
