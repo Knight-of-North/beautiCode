@@ -23,7 +23,7 @@
 
 beautiCode is a local background tool, **aimed mainly at DeepSeek Harness and Codex**.
 
-It does not bundle, install, or start DSH. Install DeepSeek Harness yourself and run `dsh web`. After the plugin is installed, a **Background** entry appears above **Settings** in the DSH sidebar — no tray required. Codex Desktop still goes through the beautiCode tray. You can set files already on your computer as the background behind the DeepSeek Harness page:
+It does not bundle, install, or start DSH. Install DeepSeek Harness yourself and run `dsh web`. After the plugin is installed, a **Background** entry appears in the DSH settings dialog — no tray required. Codex Desktop still goes through the beautiCode tray. You can set files already on your computer as the background behind the DeepSeek Harness page:
 
 * Images
 * Live wallpapers
@@ -49,7 +49,7 @@ npx beauticode-dsh
 
 `npx beauticode-dsh` downloads the plugin from npm and writes it into your DSH profile. **pnpm is not required, and you do not need to run `dsh plugin add`.** If `dsh` is on your PATH, you can start the page with `dsh web`.
 
-On the page, **Background** sits above **Settings** in the sidebar. Pick an image or MP4 from a folder, clear the background, toggle sound, or switch saved themes. Saved themes include the built-in Gallery window. The web console does not include fish mode. Light and dark appearance still follow DSH’s own setting. The last background is restored on the next start.
+On the page, open **Settings** and pick **Background** from its left-hand nav. Pick an image or MP4 from a folder, clear the background, toggle sound, or switch saved themes. Saved themes include the built-in Gallery window. The web console does not include fish mode. Light and dark appearance still follow DSH’s own setting. The last background is restored on the next start.
 
 You can also use `/bg`, `/bg-theme`, `/bg-clear`, or just ask the AI to set a local image or video as the background.
 
@@ -81,7 +81,7 @@ npx @deepseek-ai/dsh web
 
 The installer ships Node.js. You do not need a separate Node.js, npm, or pnpm install. It wires the DSH plugin at the end of setup. If you changed the install directory, follow `集成说明.txt` in that folder.
 
-After you start `dsh web`, the sidebar **Background** control is ready. Codex Desktop still needs the beautiCode tray: choose **Codex Desktop** and it will launch Codex as needed; choose **DeepSeek Harness** and it only connects to a DSH page you already started — it will not start DSH for you.
+After you start `dsh web`, the **Background** page under **Settings** is ready. Codex Desktop still needs the beautiCode tray: choose **Codex Desktop** and it will launch Codex as needed; choose **DeepSeek Harness** and it only connects to a DSH page you already started — it will not start DSH for you.
 
 If automatic wiring fails, replace the path with your actual install directory (default `%LOCALAPPDATA%\Programs\beautiCode`):
 

@@ -5,7 +5,7 @@ beautiCode 通过 DeepSeek Harness 的 Cordis 插件接口接入（`beauticode-d
 ## 已实现能力
 
 - 图片背景、MP4 视频背景与清除。首页（`data-phase="hero"`）壁纸保持原亮度；进入会话（`active` / `settling`）后才压暗。
-- 网页控制台：插件装好后，DSH 侧栏「设置」上方出现「背景」。可从系统文件夹选择图片或 MP4、清除、开关声音、切换已保存主题。不需要托盘。网页控制台没有摸鱼。
+- 网页控制台：插件装好后，打开 DSH 的「设置」，左侧导航多出一项「背景」。可从系统文件夹选择图片或 MP4、清除、开关声音、切换已保存主题。不需要托盘。网页控制台没有摸鱼。
 - 对话工具与斜杠命令：在 DSH 里说「把某个本机 MP4 设成背景」，或输入 `/bg`、`/bg-theme`、`/bg-clear`。插件自己完成导入，不需要托盘。若托盘已经在跑，则复用托盘，避免两套写入打架。
 - 视频默认静音；可请求开启声音。若浏览器自动播放策略阻止开启声音，会继续静音播放并返回 `blocked: true`。
 - 视频播放位置随已保存主题记录；切换主题、重新应用与页面恢复时从最近位置继续。
@@ -65,7 +65,7 @@ npx @deepseek-ai/dsh plugin --profile web add file:%LOCALAPPDATA%\Programs\beaut
 
 ## 网页控制台
 
-插件注入 `console.js`，把「背景」插在侧栏「设置」同一格里（`display: contents`，不另铺底色）。点开后的面板挂在 `document.body` 上，用实色，避免吃半透明壁纸 token。同源 `POST /__beauticode/ui/*` 转到已有的 `createBeauticodeActions()`。页面连上 SSE 后会 `reapply` 上次背景。DSH 会话列表底部的 fade 在有壁纸时关掉，避免叠出一条暗影。
+插件注入 `console.js`，它往 DSH 设置对话框的导航栏里加一个「背景」格，并在 `div[data-slot="settings.section"]`（React 渲染的那一栏）后面挂上自己的一页，选中时用 `data-bc-page` 把 React 那栏藏起来。设置对话框只在打开时存在，且类名是构建期 hash，所以识别只看 `role="dialog"` / `aria-modal` / 后代 `nav` / `[data-slot="settings.section"]` 这些结构特征，认不出就什么都不做。样式全部走 `--dsw-alias-*` / `--dsw-specific-*` token，跟设置页其他栏目同一套行结构。同源 `POST /__beauticode/ui/*` 转到已有的 `createBeauticodeActions()`。页面连上 SSE 后会 `reapply` 上次背景。DSH 会话列表底部的 fade 在有壁纸时关掉，避免叠出一条暗影。
 
 ## 控制端
 

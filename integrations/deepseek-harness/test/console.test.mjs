@@ -4,12 +4,22 @@ import test from "node:test";
 import vm from "node:vm";
 
 /**
- * Minimal DOM for console.js placement. Mirrors DSH 0.1.2-alpha.5 through
- * 0.1.5-rc.1: footArea > settingsArea > (optional display:contents slot) >
- * triggerRow (horizontal flex) > settings button. Putting #beauticode-console
- * inside triggerRow squeezes the settings button to zero width (Issue #37).
- * Counting the contents wrapper as a layout parent inserts into the collapsed
- * settingsArea row instead of footArea (Issue #39).
+ * Minimal DOM for console.js. The console no longer mounts anything in the
+ * sidebar: it adds a nav cell to the DSH settings dialog and a section of its
+ * own next to the React one, then swaps which of the two is visible. The dialog
+ * only exists while it is open, so the fixture below builds it on demand and
+ * the tests drive open / close / re-render by hand.
+ *
+ * Contract console.js relies on, mirrored here:
+ *   div[role=dialog][aria-modal=true][aria-labelledby=<id>]
+ *     ├── nav > (title#<id>, navList > button × N)
+ *     └── content > options > div[data-slot="settings.section"]
+ *
+ * FakeNode limitations the console must respect: matches() handles a
+ * comma-separated list of tag / tag[attr="v"] / [attr="v"] / [attr] / .class /
+ * #id only (no descendant combinators), and innerHTML parsing is flat — nested
+ * markup does not create a hierarchy, so structural claims are asserted against
+ * the HTML string instead.
  */
 class FakeNode {
   constructor(tagName, document) {
@@ -44,6 +54,12 @@ class FakeNode {
     return siblings[siblings.indexOf(this) + 1] ?? null;
   }
 
+  get previousElementSibling() {
+    if (!this.parentElement) return null;
+    const siblings = this.parentElement.children;
+    return siblings[siblings.indexOf(this) - 1] ?? null;
+  }
+
   setAttribute(name, value) {
     this.attributes.set(name, String(value));
     if (name === "id") this.id = String(value);
@@ -64,6 +80,12 @@ class FakeNode {
 
   hasAttribute(name) {
     return this.getAttribute(name) != null;
+  }
+
+  removeAttribute(name) {
+    this.attributes.delete(name);
+    if (name === "id") this.id = "";
+    if (name === "class") this.className = "";
   }
 
   set innerHTML(html) {
@@ -118,17 +140,39 @@ class FakeNode {
     this.parentElement = null;
   }
 
-  addEventListener(name, handler) {
+  addEventListener(name, handler, options) {
     const list = this.listeners.get(name) ?? [];
-    list.push(handler);
+    list.push({ handler, capture: options === true || options?.capture === true });
     this.listeners.set(name, list);
   }
 
+  /**
+   * Dispatches a bubbling click up the ancestor chain, capture listeners
+   * outermost-first, honouring stopPropagation(). The console hands control
+   * back to React from a capture listener on the dialog, so the phase is real.
+   */
   click() {
     this.clicks = (this.clicks ?? 0) + 1;
-    for (const handler of this.listeners.get("click") ?? []) {
-      handler({ target: this, stopPropagation() {} });
-    }
+    const path = [];
+    for (let node = this; node; node = node.parentElement) path.push(node);
+    let stopped = false;
+    const event = {
+      target: this,
+      stopPropagation() {
+        stopped = true;
+      },
+      preventDefault() {},
+    };
+    const fire = (node, capture) => {
+      if (stopped) return;
+      for (const entry of node.listeners.get("click") ?? []) {
+        if (entry.capture !== capture) continue;
+        entry.handler(event);
+      }
+    };
+    for (let i = path.length - 1; i >= 0; i -= 1) fire(path[i], true);
+    for (const node of path) fire(node, false);
+    return stopped;
   }
 
   contains(node) {
@@ -138,12 +182,32 @@ class FakeNode {
     return false;
   }
 
+  closest(selector) {
+    for (let node = this; node; node = node.parentElement) {
+      if (node.matches(selector)) return node;
+    }
+    return null;
+  }
+
   matches(selector) {
+    return String(selector)
+      .split(",")
+      .some((part) => this.matchesOne(part.trim()));
+  }
+
+  matchesOne(selector) {
+    if (!selector) return false;
     const attr = selector.match(/^(\w+)?\[([^=\]]+)=["']([^"']+)["']\]$/);
     if (attr) {
       const [, tag, name, value] = attr;
       if (tag && this.tagName !== tag.toUpperCase()) return false;
       return this.getAttribute(name) === value;
+    }
+    const presence = selector.match(/^(\w+)?\[([^=\]]+)\]$/);
+    if (presence) {
+      const [, tag, name] = presence;
+      if (tag && this.tagName !== tag.toUpperCase()) return false;
+      return this.getAttribute(name) != null;
     }
     if (selector.startsWith(".")) {
       return this.className.split(/\s+/).includes(selector.slice(1));
@@ -163,19 +227,6 @@ class FakeNode {
 
   querySelector(selector) {
     return this.querySelectorAll(selector)[0] ?? null;
-  }
-
-  getBoundingClientRect() {
-    if (this.getAttribute("aria-haspopup") !== "dialog") {
-      return { width: 36, height: 36, left: 8, top: 724, bottom: 760 };
-    }
-    const squeezed = this.parentElement?.children.some(
-      (child) => child.id === "beauticode-console",
-    );
-    if (squeezed) {
-      return { width: 0, height: 0, left: 8, top: 0, bottom: 0 };
-    }
-    return { width: 36, height: 36, left: 8, top: 724, bottom: 760 };
   }
 }
 
@@ -200,70 +251,119 @@ function createConsoleDocument() {
   return document;
 }
 
-function mountAlpha5Sidebar(document) {
-  const footArea = document.createElement("div");
-  footArea.id = "foot-area";
-  const settingsArea = document.createElement("div");
-  settingsArea.id = "settings-area";
-  const triggerRow = document.createElement("div");
-  triggerRow.id = "trigger-row";
-  triggerRow.style.display = "flex";
-  triggerRow.style.flexDirection = "row";
-  const settings = document.createElement("button");
-  settings.id = "dsh-settings";
-  settings.setAttribute("aria-haspopup", "dialog");
-  triggerRow.append(settings);
-  settingsArea.append(triggerRow);
-  footArea.append(settingsArea);
-  document.body.append(footArea);
-  return { footArea, settingsArea, triggerRow, settings };
+/**
+ * The settings dialog as DSH renders it: present only while open. The nav title
+ * carries the aria-labelledby id, which React useId makes something like ":r1:"
+ * — an invalid CSS identifier, so console.js must never turn it into a selector.
+ */
+function mountSettingsDialog(document) {
+  const overlay = document.createElement("div");
+  const mask = document.createElement("div");
+  const dialog = document.createElement("div");
+  dialog.setAttribute("role", "dialog");
+  dialog.setAttribute("aria-modal", "true");
+  dialog.setAttribute("aria-labelledby", ":r1:");
+
+  const nav = document.createElement("nav");
+  const navTitle = document.createElement("div");
+  navTitle.id = ":r1:";
+  navTitle.className = "navTitle";
+  const navList = document.createElement("div");
+  const cells = ["通用", "模型"].map((label) => {
+    const cell = document.createElement("button");
+    cell.type = "button";
+    cell.textContent = label;
+    navList.append(cell);
+    return cell;
+  });
+  cells[0].setAttribute("aria-current", "true");
+  nav.append(navTitle, navList);
+
+  const content = document.createElement("div");
+  const header = document.createElement("div");
+  const options = document.createElement("div");
+  const anchor = document.createElement("div");
+  anchor.setAttribute("data-slot", "settings.section");
+  anchor.style.display = "contents";
+  const section = document.createElement("div");
+  section.className = "fake-section";
+  anchor.append(section);
+  options.append(anchor);
+  content.append(header, options);
+  dialog.append(nav, content);
+  overlay.append(mask, dialog);
+  document.body.append(overlay);
+
+  return {
+    overlay,
+    dialog,
+    nav,
+    navTitle,
+    navList,
+    cells,
+    content,
+    options,
+    anchor,
+    /** React re-renders the whole nav list when its items change. */
+    rerenderNavList() {
+      const fresh = document.createElement("div");
+      const freshCells = ["通用", "模型", "插件"].map((label) => {
+        const cell = document.createElement("button");
+        cell.type = "button";
+        cell.textContent = label;
+        fresh.append(cell);
+        return cell;
+      });
+      freshCells[0].setAttribute("aria-current", "true");
+      navList.remove();
+      nav.append(fresh);
+      return { navList: fresh, cells: freshCells };
+    },
+    unmount() {
+      overlay.remove();
+    },
+  };
 }
 
-/**
- * DSH 0.1.5-rc.1 collapsed rail: SlotOutlet wraps sidebar.settings in a
- * display:contents [data-slot] node, and .settingsArea becomes a horizontal
- * flex. Counting raw parentElement hops then inserts into that row — Issue #39.
- */
-function mountCollapsedRailSidebar(document) {
-  const footArea = document.createElement("div");
-  footArea.id = "foot-area";
-  footArea.style.display = "flex";
-  footArea.style.flexDirection = "column";
-  const footerActions = document.createElement("div");
-  footerActions.id = "footer-actions";
-  const settingsArea = document.createElement("div");
-  settingsArea.id = "settings-area";
-  settingsArea.style.display = "flex";
-  const slot = document.createElement("div");
-  slot.id = "settings-slot";
-  slot.setAttribute("data-slot", "sidebar.settings");
-  slot.style.display = "contents";
-  const triggerRow = document.createElement("div");
-  triggerRow.id = "trigger-row";
-  triggerRow.style.display = "flex";
-  triggerRow.style.flexDirection = "row";
-  const settings = document.createElement("button");
-  settings.id = "dsh-settings";
-  settings.setAttribute("aria-haspopup", "dialog");
-  triggerRow.append(settings);
-  slot.append(triggerRow);
-  settingsArea.append(slot);
-  footArea.append(footerActions, settingsArea);
-  document.body.append(footArea);
-  return { footArea, footerActions, settingsArea, slot, triggerRow, settings };
+const okJson = (body) => ({ ok: true, status: 200, json: async () => body });
+
+function statusBody(extra = {}) {
+  return {
+    ok: true,
+    atmosphere: "none",
+    media: "none",
+    sourceMode: "",
+    muted: true,
+    themes: [],
+    ...extra,
+  };
+}
+
+/** Routes by path so the status payload and the import routes can differ. */
+function routedFetch(routes) {
+  return async (path) => {
+    const handler = routes[path];
+    if (!handler) return okJson({ ok: false, error: `unrouted ${path}` });
+    return handler(path);
+  };
 }
 
 async function loadConsole(document, { fetch: fetchImpl } = {}) {
   const source = await fs.readFile(new URL("../console.js", import.meta.url), "utf8");
   const ticks = [];
+  const observerCallbacks = [];
   const context = {
     window: null,
     document,
     MutationObserver: class {
-      observe() {}
+      constructor(callback) {
+        this.callback = callback;
+      }
+      observe() {
+        observerCallbacks.push(this.callback);
+      }
     },
     addEventListener() {},
-    innerHeight: 800,
     setInterval: (fn) => {
       ticks.push(fn);
       return ticks.length;
@@ -274,115 +374,176 @@ async function loadConsole(document, { fetch: fetchImpl } = {}) {
     AbortController,
     setTimeout,
     clearTimeout,
+    queueMicrotask,
     fetch: fetchImpl ?? (async () => ({ ok: false, json: async () => ({}) })),
-    getComputedStyle: (el) => ({ display: el?.style?.display || "block" }),
   };
   context.window = context;
   context.globalThis = context;
   vm.runInNewContext(source, context);
   return {
+    source,
+    /** The interval is the drift net console.js keeps for DOM churn. */
     tick() {
       for (const fn of ticks) fn();
+    },
+    /** Runs fn, then the MutationObserver callbacks, as a real mutation would. */
+    mutate(fn) {
+      fn();
+      for (const callback of observerCallbacks) callback();
     },
   };
 }
 
-test("console mounts above the settings area instead of inside the trigger row", async () => {
+const flushAsync = async () => {
+  for (let i = 0; i < 8; i += 1) await new Promise((resolve) => setImmediate(resolve));
+};
+
+const navCell = (document) => document.querySelectorAll('[data-bc-nav="console"]')[0] ?? null;
+const pageEl = (document) => document.getElementById("beauticode-console-page");
+const filePicker = (document) => document.getElementById("beauticode-console-file");
+
+test("console adds a 背景 cell and page to the settings dialog, inactive", async () => {
   const document = createConsoleDocument();
-  const { footArea, settingsArea, triggerRow, settings } = mountAlpha5Sidebar(document);
-  const runtime = await loadConsole(document);
-
-  const snapshots = [];
-  const capture = () => {
-    const host = document.getElementById("beauticode-console");
-    snapshots.push({
-      parent: host?.parentElement?.id ?? null,
-      next: host?.nextElementSibling?.id ?? null,
-      settingsWidth: settings.getBoundingClientRect().width,
-      inTriggerRow: triggerRow.children.includes(host),
-    });
-  };
-
-  capture();
-  for (let i = 0; i < 6; i += 1) {
-    runtime.tick();
-    capture();
-  }
-
-  const host = document.getElementById("beauticode-console");
-  assert.equal(host?.parentElement?.id, "foot-area");
-  assert.equal(host?.nextElementSibling?.id, "settings-area");
-  assert.equal(triggerRow.children.map((child) => child.id).join(","), "dsh-settings");
-  assert.equal(host.parentElement, footArea);
-  assert.equal(host.nextElementSibling, settingsArea);
-  for (const snapshot of snapshots) {
-    assert.equal(snapshot.parent, "foot-area");
-    assert.equal(snapshot.next, "settings-area");
-    assert.equal(snapshot.settingsWidth, 36);
-    assert.equal(snapshot.inTriggerRow, false);
-  }
-});
-
-test("console skips display:contents slot wrappers so collapsed rail stacks vertically", async () => {
-  const document = createConsoleDocument();
-  const { footArea, settingsArea, slot, triggerRow, settings } = mountCollapsedRailSidebar(document);
-  const runtime = await loadConsole(document);
-
-  const snapshots = [];
-  const capture = () => {
-    const host = document.getElementById("beauticode-console");
-    snapshots.push({
-      parent: host?.parentElement?.id ?? null,
-      next: host?.nextElementSibling?.id ?? null,
-      inSettingsArea: settingsArea.children.includes(host),
-      inSlot: slot.children.includes(host),
-      inTriggerRow: triggerRow.children.includes(host),
-      settingsWidth: settings.getBoundingClientRect().width,
-    });
-  };
-
-  capture();
-  for (let i = 0; i < 6; i += 1) {
-    runtime.tick();
-    capture();
-  }
-
-  const host = document.getElementById("beauticode-console");
-  assert.equal(host?.parentElement?.id, "foot-area");
-  assert.equal(host?.nextElementSibling?.id, "settings-area");
-  assert.equal(host.parentElement, footArea);
-  assert.equal(host.nextElementSibling, settingsArea);
-  assert.equal(settingsArea.children.map((child) => child.id).join(","), "settings-slot");
-  assert.equal(triggerRow.children.map((child) => child.id).join(","), "dsh-settings");
-  for (const snapshot of snapshots) {
-    assert.equal(snapshot.parent, "foot-area");
-    assert.equal(snapshot.next, "settings-area");
-    assert.equal(snapshot.inSettingsArea, false);
-    assert.equal(snapshot.inSlot, false);
-    assert.equal(snapshot.inTriggerRow, false);
-    assert.equal(snapshot.settingsWidth, 36);
-  }
-});
-
-test("console pop includes a dim slider and restore-default control", async () => {
-  const document = createConsoleDocument();
-  mountAlpha5Sidebar(document);
+  const dialog = mountSettingsDialog(document);
   await loadConsole(document);
 
-  const pop = document.getElementById("beauticode-console-pop");
-  assert.match(pop.innerHTML, /class="bc-dim-slider"/);
-  assert.match(pop.innerHTML, /type="range"/);
-  assert.match(pop.innerHTML, /恢复默认/);
-  assert.match(pop.innerHTML, /data-act="dim-reset"/);
-  assert.ok(pop.querySelector(".bc-dim-slider"));
-  assert.ok(pop.querySelector('[data-act="dim-reset"]'));
-  assert.equal(pop.querySelector(".bc-dim-value")?.textContent, "自动");
-  assert.equal(pop.querySelector('[data-act="dim-reset"]').hidden, true);
+  const cell = navCell(document);
+  const page = pageEl(document);
+  assert.ok(cell, "the nav cell is injected");
+  assert.ok(page, "the page is injected");
+  assert.match(cell.innerHTML, /背景/);
+  assert.equal(cell.getAttribute("aria-current"), null);
+  assert.equal(dialog.navList.children[dialog.navList.children.length - 1], cell);
+  assert.equal(page.parentElement, dialog.options);
+  assert.equal(page.previousElementSibling, dialog.anchor);
+  assert.equal(page.hidden, true);
+  assert.equal(dialog.dialog.getAttribute("data-bc-page"), null);
+  assert.ok(page.querySelector('[data-act="image"]'), "the import control is wired");
 });
 
-const flushAsync = async () => {
-  for (let i = 0; i < 4; i += 1) await new Promise((resolve) => setImmediate(resolve));
-};
+test("console injects nothing while no settings dialog is open", async () => {
+  const document = createConsoleDocument();
+  const runtime = await loadConsole(document);
+
+  assert.equal(pageEl(document), null, "no page is parked in the document");
+  assert.equal(navCell(document), null);
+  assert.equal(document.querySelectorAll('[aria-haspopup="dialog"]').length, 0);
+  assert.equal(document.querySelectorAll(".bc-trigger").length, 0);
+
+  const dialog = mountSettingsDialog(document);
+  runtime.tick();
+  assert.ok(navCell(document), "and it appears once the dialog opens");
+  assert.equal(pageEl(document).parentElement, dialog.options);
+});
+
+test("console hides the React section without removing it, and only when active", async () => {
+  const document = createConsoleDocument();
+  const dialog = mountSettingsDialog(document);
+  await loadConsole(document);
+
+  dialog.options.scrollTop = 500;
+  navCell(document).click();
+
+  assert.equal(dialog.dialog.getAttribute("data-bc-page"), "on");
+  assert.equal(navCell(document).getAttribute("aria-current"), "true");
+  assert.equal(pageEl(document).hidden, false);
+  assert.equal(dialog.anchor.parentElement, dialog.options, "React still owns its section");
+  assert.equal(dialog.options.children[0], dialog.anchor);
+  assert.equal(dialog.options.scrollTop, 0, "a long React section must not leave us mid-scroll");
+});
+
+test("console hands control back when a React nav cell is clicked", async () => {
+  const document = createConsoleDocument();
+  const dialog = mountSettingsDialog(document);
+  await loadConsole(document);
+
+  navCell(document).click();
+  assert.equal(pageEl(document).hidden, false);
+
+  dialog.cells[1].click();
+  assert.equal(dialog.dialog.getAttribute("data-bc-page"), null);
+  assert.equal(navCell(document).getAttribute("aria-current"), null);
+  assert.equal(pageEl(document).hidden, true);
+});
+
+test("console survives React replacing the whole nav list while active", async () => {
+  const document = createConsoleDocument();
+  const dialog = mountSettingsDialog(document);
+  const runtime = await loadConsole(document);
+
+  navCell(document).click();
+  const fresh = dialog.rerenderNavList();
+  runtime.mutate(() => {});
+  await flushAsync();
+
+  const cell = navCell(document);
+  assert.equal(cell.parentElement, fresh.navList, "re-parented into the new list");
+  assert.equal(fresh.navList.children[fresh.navList.children.length - 1], cell);
+  assert.equal(cell.getAttribute("aria-current"), "true");
+  assert.equal(dialog.dialog.getAttribute("data-bc-page"), "on");
+  assert.equal(pageEl(document).hidden, false);
+
+  fresh.cells[0].click();
+  assert.equal(pageEl(document).hidden, true, "the new cells still take control back");
+});
+
+test("console resets to the React page when settings is closed and reopened", async () => {
+  const document = createConsoleDocument();
+  const first = mountSettingsDialog(document);
+  const runtime = await loadConsole(document);
+
+  navCell(document).click();
+  assert.equal(pageEl(document).hidden, false);
+
+  first.unmount();
+  runtime.tick();
+  assert.equal(pageEl(document), null, "teardown detaches our page");
+  assert.equal(navCell(document), null);
+
+  const second = mountSettingsDialog(document);
+  runtime.tick();
+  const cell = navCell(document);
+  assert.equal(cell.parentElement, second.navList, "injected into the new dialog");
+  assert.equal(pageEl(document).parentElement, second.options);
+  assert.equal(cell.getAttribute("aria-current"), null);
+  assert.equal(pageEl(document).hidden, true);
+  assert.equal(second.dialog.getAttribute("data-bc-page"), null);
+});
+
+test("console page includes a dim slider and restore-default control", async () => {
+  const document = createConsoleDocument();
+  mountSettingsDialog(document);
+  await loadConsole(document);
+
+  const page = pageEl(document);
+  assert.match(page.innerHTML, /class="bc-dim-slider"/);
+  assert.match(page.innerHTML, /type="range"/);
+  assert.match(page.innerHTML, /恢复默认/);
+  assert.match(page.innerHTML, /data-act="dim-reset"/);
+  assert.ok(page.querySelector(".bc-dim-slider"));
+  assert.ok(page.querySelector('[data-act="dim-reset"]'));
+  assert.equal(page.querySelector(".bc-dim-value")?.textContent, "自动");
+  assert.equal(page.querySelector('[data-act="dim-reset"]').hidden, true);
+});
+
+test("console page follows the settings row recipe", async () => {
+  const document = createConsoleDocument();
+  mountSettingsDialog(document);
+  const runtime = await loadConsole(document);
+
+  const page = pageEl(document);
+  const html = page.innerHTML;
+  // innerHTML parsing is flat in this harness, so nesting is asserted textually.
+  assert.ok(html.indexOf('class="bc-row-text"') < html.indexOf('data-act="image"'));
+  assert.equal(page.querySelectorAll(".bc-row-title").length, 6);
+  assert.equal(page.querySelectorAll(".bc-row-desc").length, 6);
+  assert.ok(page.querySelector('[data-act="video"]'));
+  assert.ok(page.querySelector('[data-act="sound"]'));
+  assert.ok(page.querySelector('[data-act="clear"]'));
+  assert.ok(page.querySelector('[data-act="gallery"]'));
+  assert.ok(page.querySelector(".bc-themes"));
+  assert.ok(runtime.source.includes("--dsw-alias-border-l2"), "rows use the shipped tokens");
+});
 
 /**
  * Safari (and WebKit generally) only opens a file picker when input.click()
@@ -393,54 +554,84 @@ const flushAsync = async () => {
  */
 test("console opens the file picker inside the click when managed upload is allowed", async () => {
   const document = createConsoleDocument();
-  mountAlpha5Sidebar(document);
+  mountSettingsDialog(document);
   await loadConsole(document, {
-    fetch: async () => ({
-      ok: true,
-      json: async () => ({
-        ok: true,
-        importPolicy: { nativeLocalRequired: false, managedUploadAllowed: true },
-      }),
+    fetch: routedFetch({
+      "/__beauticode/ui/status": () =>
+        okJson(
+          statusBody({ importPolicy: { nativeLocalRequired: false, managedUploadAllowed: true } }),
+        ),
     }),
   });
 
-  document.querySelectorAll(".bc-trigger")[0].click();
+  navCell(document).click();
   await flushAsync();
 
-  const fileInput = document.getElementById("beauticode-console-file");
-  const imageButton = document.querySelectorAll('[data-act="image"]')[0];
-  assert.ok(imageButton, "image import button is wired");
-
-  imageButton.click();
+  pageEl(document).querySelector('[data-act="image"]').click();
   // No await between the click and these assertions: the picker must open in
   // the same synchronous block as the gesture, not after a round trip.
-  assert.equal(fileInput.clicks, 1, "file picker opens from the click handler");
-  assert.match(fileInput.accept, /image\/jpeg/);
-  assert.equal(fileInput.dataset.compatibilityUpload, "true");
+  const picker = filePicker(document);
+  assert.equal(picker.clicks, 1, "file picker opens from the click handler");
+  assert.match(picker.accept, /image\/jpeg/);
+  assert.equal(picker.dataset.compatibilityUpload, "true");
 });
 
 test("console leaves the browser picker closed when the host picker is required", async () => {
   const document = createConsoleDocument();
-  mountAlpha5Sidebar(document);
+  mountSettingsDialog(document);
   await loadConsole(document, {
-    fetch: async () => ({
-      ok: true,
-      json: async () => ({
-        ok: true,
-        cancelled: true,
-        importPolicy: { nativeLocalRequired: true, managedUploadAllowed: false },
-      }),
+    fetch: routedFetch({
+      "/__beauticode/ui/status": () =>
+        okJson(
+          statusBody({ importPolicy: { nativeLocalRequired: true, managedUploadAllowed: false } }),
+        ),
+      "/__beauticode/ui/pick": () => okJson({ ok: true, cancelled: true }),
     }),
   });
 
-  document.querySelectorAll(".bc-trigger")[0].click();
+  navCell(document).click();
   await flushAsync();
 
-  const fileInput = document.getElementById("beauticode-console-file");
-  const imageButton = document.querySelectorAll('[data-act="image"]')[0];
-  imageButton.click();
-  assert.equal(fileInput.clicks ?? 0, 0, "the host picker path opens no browser picker");
+  pageEl(document).querySelector('[data-act="image"]').click();
+  assert.equal(filePicker(document).clicks ?? 0, 0, "the host picker path opens no browser picker");
 
   await flushAsync();
-  assert.equal(fileInput.clicks ?? 0, 0, "and none appears once the round trip settles");
+  assert.equal(filePicker(document).clicks ?? 0, 0, "and none appears once the round trip settles");
+});
+
+test("console disables its controls and reports progress while busy", async () => {
+  const document = createConsoleDocument();
+  mountSettingsDialog(document);
+  let release = () => {};
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  await loadConsole(document, {
+    fetch: routedFetch({
+      "/__beauticode/ui/status": () => okJson(statusBody()),
+      "/__beauticode/ui/clear": async () => {
+        await gate;
+        return okJson({ ok: true, message: "已清除" });
+      },
+    }),
+  });
+
+  const page = pageEl(document);
+  page.querySelector('[data-act="clear"]').click();
+
+  assert.equal(page.dataset.busy, "true");
+  assert.equal(
+    page.querySelectorAll(".bc-btn").every((button) => button.disabled === true),
+    true,
+    "every control is disabled while the request is in flight",
+  );
+  assert.match(page.querySelector(".bc-msg").textContent, /正在处理/);
+
+  release();
+  await flushAsync();
+  assert.equal(page.dataset.busy, undefined);
+  assert.equal(
+    page.querySelectorAll(".bc-btn").some((button) => button.disabled === true),
+    false,
+  );
 });
