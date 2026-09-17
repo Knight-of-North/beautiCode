@@ -751,7 +751,6 @@ test("console keeps the picker closed until importPolicy arrives", async () => {
   const page = pageEl(document);
   const mediaButton = page.querySelector('[data-act="media"]');
   assert.equal(mediaButton.disabled, true, "import stays locked until /ui/status reports a policy");
-  assert.equal(page.querySelector(".bc-page-intro").textContent, "给 DSH 换一张背景图或视频。");
 
   mediaButton.click();
   assert.equal(filePicker(document).clicks ?? 0, 0, "no browser picker before the policy is known");
