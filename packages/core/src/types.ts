@@ -161,6 +161,11 @@ export interface HostApplyPayload {
    */
   imageDataUrl: string | null;
   /**
+   * Host-only absolute path for CDP setFileInputFiles on large stills.
+   * Stripped before Runtime.evaluate — never sent into the page.
+   */
+  imageLocalPath?: string;
+  /**
    * Optional loopback http URL. Blocked by Codex CSP; kept for non-Codex
    * hosts / tests that allow connect-src to loopback.
    */

@@ -17,11 +17,12 @@ import {
   type SavedThemeInfo,
 } from "@beauticode/core";
 import { CodexHostApplier } from "./host-applier.js";
+import { createConsoleHost } from "./console-host.js";
 import { CdpIdentityMismatchError, CdpError } from "./cdp.js";
 import { probeCdp } from "./discovery.js";
 import { findBestCdpPort } from "./host-discover.js";
 import { acquireInjectorLock } from "./injector-lock.js";
-import { loadRendererSource } from "./payload.js";
+import { loadRendererSource, MAX_CDP_INLINE_IMAGE_BYTES } from "./payload.js";
 import { CODEX_HOST_DESCRIPTOR } from "./host-descriptor.js";
 
 export interface BeautiSessionOptions {
@@ -109,6 +110,7 @@ export class BeautiSession implements HostSession {
   private progressWriteInFlight = false;
   private onError: ((err: Error) => void) | null;
   private onStatus: ((msg: string) => void) | null;
+  private consoleHost: ReturnType<typeof createConsoleHost>;
 
   constructor(opts: BeautiSessionOptions = {}) {
     this.dataRoot = opts.dataRoot ?? defaultDataRoot();
@@ -122,6 +124,7 @@ export class BeautiSession implements HostSession {
     this.deferHostConnect = opts.deferHostConnect ?? true;
     this.onError = opts.onError ?? null;
     this.onStatus = opts.onStatus ?? null;
+    this.consoleHost = createConsoleHost(this);
     this.store = new BackgroundStore({
       root: this.dataRoot,
       bundledThemes: resolveSessionBundledThemes({
@@ -276,6 +279,20 @@ export class BeautiSession implements HostSession {
     return this.#trackOperation(this.applyInternal(input));
   }
 
+  async applyAndSaveTheme(
+    input: ApplyInput,
+    name: string,
+  ): Promise<ApplyResult & { theme?: { id: string; name: string } }> {
+    return this.#trackOperation(
+      (async () => {
+        const result = await this.applyInternal(input);
+        if (!result.ok) return result;
+        const theme = await this.saveCurrentThemeInternal(name);
+        return { ...result, theme };
+      })(),
+    );
+  }
+
   private async applyInternal(input: ApplyInput): Promise<ApplyResult> {
     if (this.closed || !this.releaseLock) {
       throw new CdpError("Session is not started");
@@ -300,6 +317,7 @@ export class BeautiSession implements HostSession {
         host: this.host,
         cssText,
         verifyDeadlineMs: this.verifyDeadlineMs,
+        maxInlineImageBytes: MAX_CDP_INLINE_IMAGE_BYTES,
         offline: false,
       });
       const result = await tx.run(input);
@@ -632,6 +650,7 @@ export class BeautiSession implements HostSession {
         host: this.host,
         cssText,
         verifyDeadlineMs: this.verifyDeadlineMs,
+        maxInlineImageBytes: MAX_CDP_INLINE_IMAGE_BYTES,
         offline: false,
       });
       const result = await tx.run(saved.input);
@@ -704,11 +723,22 @@ export class BeautiSession implements HostSession {
     }
   }
 
+  private forgetHost(): void {
+    if (!this.autoDiscover) return;
+    this.port = null;
+    this.host?.close();
+    this.host = null;
+    this.lastPublishSessionKey = "";
+    this.detachedVideoKey = "";
+  }
+
   private createHost(port: number): CodexHostApplier {
     const options: ConstructorParameters<typeof CodexHostApplier>[0] = {
       port,
       requireAppProtocol: this.requireAppProtocol,
       pollMs: Math.min(this.pollMs, 400),
+      connectDeadlineMs: 15_000,
+      onConsoleRequest: (request) => this.consoleHost.handle(request),
     };
     if (this.urlPrefix !== undefined) options.urlPrefix = this.urlPrefix;
     return new CodexHostApplier(options);
@@ -740,6 +770,15 @@ export class BeautiSession implements HostSession {
       try {
         await this.ensureHost({ allowDiscover: true });
       } catch {
+        if (this.port != null) {
+          try {
+            await probeCdp(this.port, "127.0.0.1", { timeoutMs: 400 });
+          } catch {
+            this.forgetHost();
+          }
+        } else {
+          this.forgetHost();
+        }
         return;
       }
       if (!this.host || this.port == null) return;
@@ -905,6 +944,8 @@ export class BeautiSession implements HostSession {
         manifest,
         { image: imageHandle, video: videoHandle },
         cssText,
+        undefined,
+        { maxInlineImageBytes: MAX_CDP_INLINE_IMAGE_BYTES },
       );
       runtimeVideoPath = payload.video?.localPath ?? null;
       await this.host.apply(payload, { forceRebuild: forceVideoRebuild });

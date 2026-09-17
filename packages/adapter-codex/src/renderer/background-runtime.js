@@ -19,11 +19,13 @@
  *   connect-src: 'self' + openai hosts only        (NO loopback fetch)
  * So media MUST arrive as data: or blob: URLs.
  */
-((cssText, imageDataUrl, videoConfig, generation, imageUrl, forceRebuild) => {
+((cssText, imageDataUrl, videoConfig, generation, imageUrl, forceRebuild, imageBlob) => {
   const STAGE_ID = "beauticode-bg-stage";
   const STYLE_ID = "beauticode-bg-style";
   const VIDEO_INPUT_ID = "beauticode-video-input";
+  const IMAGE_INPUT_ID = "beauticode-image-input";
   const gen = Number(generation) || 0;
+  const wantImageBlob = Boolean(imageBlob);
 
   const toChineseMediaError = (error) => {
     const message = String(error?.message || error || "").trim();
@@ -70,7 +72,7 @@
             videoConfig.srcUrl ||
             videoConfig.url),
       );
-      const wantsClear = !imageDataUrl && !imageUrl && !wantsVideo;
+      const wantsClear = !imageDataUrl && !imageUrl && !wantsVideo && !wantImageBlob;
       const healthyVideo =
         wantsVideo &&
         snap &&
@@ -84,6 +86,8 @@
         snap &&
         snap.active &&
         snap.hasImage &&
+        snap.imageLoaded === true &&
+        snap.imageFailed !== true &&
         snap.media === "image";
       const healthyClear = wantsClear && snap && !snap.active && !snap.hasStage;
       if (healthyVideo || healthyImage || healthyClear) {
@@ -97,6 +101,16 @@
           }
           if (typeof cssText === "string") style.textContent = cssText;
         } catch (_) {}
+        // Same-gen republish used to leave a playable video at inline opacity:0.
+        if (healthyVideo) {
+          try {
+            const v = document.querySelector("#beauticode-bg-stage video");
+            if (v) {
+              v.style.opacity = "";
+              v.removeAttribute("poster");
+            }
+          } catch (_) {}
+        }
         return { skipped: true, generation: gen, reason: "same-generation" };
       }
     } catch (_) {
@@ -539,7 +553,13 @@
   };
 
   const hasBackgroundMedia = () =>
-    Boolean(resolvedPoster || videoEnabled || remoteImageUrl || dataImageUrl);
+    Boolean(
+      resolvedPoster ||
+        videoEnabled ||
+        remoteImageUrl ||
+        dataImageUrl ||
+        wantImageBlob,
+    );
 
   const applyFishAttr = () => {
     try {
@@ -770,7 +790,11 @@
 
   const setAttrs = () => {
     const active = Boolean(
-      resolvedPoster || videoEnabled || remoteImageUrl || dataImageUrl,
+      resolvedPoster ||
+        videoEnabled ||
+        remoteImageUrl ||
+        dataImageUrl ||
+        wantImageBlob,
     );
     if (!active) {
       root.removeAttribute("data-bc-active");
@@ -987,30 +1011,35 @@
     return URL.createObjectURL(blob);
   };
 
+  const revealVideo = () => {
+    try {
+      if (videoEl) {
+        videoEl.style.opacity = "";
+        videoEl.removeAttribute("poster");
+      }
+    } catch (_) {}
+  };
+
   const markReady = () => {
-    if (!isCurrent() || videoFailed || videoReady) return;
+    if (!isCurrent() || videoFailed) return;
+    // A second blob attach can set inline opacity:0 after the first ready
+    // signal. Always reveal; otherwise verify passes and the art stays hidden.
+    if (videoReady) {
+      revealVideo();
+      return;
+    }
     videoReady = true;
     pendingPlay = false;
     retryCount = 0;
     clearRetry();
-    try {
-      if (videoEl) {
-        // Reveal replacement only after a decoded frame.
-        videoEl.style.opacity = "";
-        // Poster on a live element reappears during stalls → image/video flash.
-        videoEl.removeAttribute("poster");
-      }
-    } catch (_) {}
-    // Theme resume: seek once metadata/frame is available (invalid → 0).
+    revealVideo();
     try {
       if (videoEl) applyPendingStartAt(videoEl);
     } catch (_) {}
-    // Re-assert mute preference once the video is actually playing.
     try {
       applyMuteState();
     } catch (_) {}
     setAttrs();
-    // Drop the previous generation's video only after the new one is visible.
     releaseHandoff();
   };
 
@@ -1101,17 +1130,25 @@
     if (!isCurrent() || videoFailed) return;
     if (isDocHidden()) return;
     if (!videoEl || !videoEl.src) return;
+    try {
+      // Inline opacity:0 beats the ready CSS rule. Hidden pages often miss
+      // markReady's clear; restoring visibility must drop it or the video
+      // stays invisible while snapshot says ready.
+      videoEl.style.opacity = "";
+    } catch (_) {}
     Promise.resolve(videoEl.play?.())
       .then(() => {
         if (!isCurrent() || videoFailed) return;
         pendingPlay = false;
+        try {
+          videoEl.style.opacity = "";
+        } catch (_) {}
         if (
           videoReady ||
           videoEl.readyState >= 2 ||
           !videoEl.paused ||
           videoEl.currentTime > 0
         ) {
-          // Already-ready hidden video must stay ready (session 019fa31c).
           if (!videoReady) markReady();
           else setAttrs();
         }
@@ -1178,6 +1215,68 @@
     });
     (document.body || document.documentElement).appendChild(input);
     return input;
+  };
+
+  const createImageInput = () => {
+    let input = document.getElementById(IMAGE_INPUT_ID);
+    if (input) return input;
+    input = document.createElement("input");
+    input.type = "file";
+    input.id = IMAGE_INPUT_ID;
+    input.accept = "image/jpeg,image/png,image/webp,image/avif,.jpg,.jpeg,.png,.webp,.avif";
+    input.tabIndex = -1;
+    input.setAttribute("aria-hidden", "true");
+    Object.assign(input.style, {
+      position: "fixed",
+      width: "1px",
+      height: "1px",
+      opacity: "0",
+      pointerEvents: "none",
+    });
+    (document.body || document.documentElement).appendChild(input);
+    return input;
+  };
+
+  const doAttachImageFile = async () => {
+    if (!isCurrent()) return false;
+    const input = document.getElementById(IMAGE_INPUT_ID);
+    const file = input && input.files && input.files[0] ? input.files[0] : null;
+    if (!file) return false;
+    try {
+      const objectUrl = URL.createObjectURL(file);
+      if (imageObjectUrl && imageObjectUrl !== objectUrl) revoke(imageObjectUrl);
+      imageObjectUrl = objectUrl;
+      resolvedPoster = objectUrl;
+      imageFailed = false;
+      const stage = ensureStage();
+      const img = ensurePosterImg(stage);
+      await new Promise((resolve) => {
+        let done = false;
+        const finish = () => {
+          if (done) return;
+          done = true;
+          resolve();
+        };
+        img.addEventListener("load", finish, { once: true });
+        img.addEventListener(
+          "error",
+          () => {
+            imageFailed = true;
+            finish();
+          },
+          { once: true },
+        );
+        setTimeout(finish, 2500);
+        if (img.getAttribute("src") !== objectUrl) img.src = objectUrl;
+        else if (img.naturalWidth > 0) finish();
+      });
+      setAttrs();
+      return Boolean(!imageFailed && img.getAttribute("src"));
+    } catch (_) {
+      imageFailed = true;
+      setAttrs();
+      return false;
+    }
   };
 
   const playVideoObjectUrl = async (video, objectUrl) => {
@@ -1453,6 +1552,12 @@
           /* CDP attach is the real path */
         }
       }
+      // If CDP already stuffed the input (attach raced ahead of apply),
+      // consume it on this generation's <video> instead of leaving an empty shell.
+      const input = document.getElementById(VIDEO_INPUT_ID);
+      if (input && input.files && input.files[0]) {
+        return doAttachVideoFile();
+      }
       return;
     }
 
@@ -1549,7 +1654,7 @@
   };
 
   const apply = async () => {
-    if (!remoteImageUrl && !dataImageUrl && !videoEnabled) {
+    if (!remoteImageUrl && !dataImageUrl && !videoEnabled && !wantImageBlob) {
       teardownVideo();
       teardownImageBlob();
       releaseHandoff();
@@ -1584,6 +1689,7 @@
     if (videoEnabled) {
       await startVideo(stage);
     } else {
+      if (wantImageBlob) createImageInput();
       // Image-only: remove any leftover videos including handoff.
       releaseHandoff();
       if (videoListeners) {
@@ -1626,7 +1732,13 @@
       return pendingPlay;
     },
     get media() {
-      if (!resolvedPoster && !videoEnabled && !remoteImageUrl && !dataImageUrl) {
+      if (
+        !resolvedPoster &&
+        !videoEnabled &&
+        !remoteImageUrl &&
+        !dataImageUrl &&
+        !wantImageBlob
+      ) {
         return "clear";
       }
       return videoEnabled && !videoFailed ? "video" : "image";
@@ -1638,6 +1750,14 @@
     },
     attachVideoFile() {
       return doAttachVideoFile();
+    },
+    ensureImageInput() {
+      if (videoEnabled) return false;
+      createImageInput();
+      return Boolean(document.getElementById(IMAGE_INPUT_ID));
+    },
+    attachImageFile() {
+      return doAttachImageFile();
     },
     /**
      * Snapshot the current playable video for the next generation.
@@ -1686,6 +1806,10 @@
       try {
         const input = document.getElementById(VIDEO_INPUT_ID);
         if (input && !handoff) input.remove();
+      } catch (_) {}
+      try {
+        const imageInput = document.getElementById(IMAGE_INPUT_ID);
+        if (imageInput && !handoff) imageInput.remove();
       } catch (_) {}
       if (!handoff) {
         clearStage();
@@ -1804,13 +1928,18 @@
   };
 
   window.__BEAUTICODE_BG__ = api;
-  Promise.resolve()
+  // Runtime.evaluate(awaitPromise) must wait until the stage exists.
+  // Returning {installed} immediately used to let CDP setFileInputFiles
+  // attach a blob, then this apply() rebuilt <video> and threw it away —
+  // every Codex video import then sat in verify until the console timed out.
+  return Promise.resolve()
     .then(apply)
+    .then(() => ({ installed: true, generation: gen }))
     .catch((err) => {
       if (isCurrent()) {
         imageFailed = true;
         markFailed(err);
       }
+      return { installed: true, generation: gen };
     });
-  return { installed: true, generation: gen };
 })

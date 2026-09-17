@@ -1,0 +1,158 @@
+#!/usr/bin/env node
+/**
+ * npx beauticode-codex — copy a stable watch host and start it on login.
+ */
+import { execFileSync, spawn } from "node:child_process";
+import fs from "node:fs";
+import fsp from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+function findPackageRoot(startDir) {
+  let dir = startDir;
+  for (let i = 0; i < 6; i += 1) {
+    if (
+      fs.existsSync(path.join(dir, "package.json")) &&
+      fs.existsSync(path.join(dir, "watch-host.mjs"))
+    ) {
+      return dir;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return startDir;
+}
+
+const here = findPackageRoot(path.dirname(fileURLToPath(import.meta.url)));
+const RUN_VALUE = "BeautiCodeCodex";
+
+function pluginHome() {
+  const local = process.env.LOCALAPPDATA || process.env.BEAUTICODE_DATA_ROOT;
+  if (local) return path.join(local, "beautiCode", "codex-plugin");
+  return path.join(os.homedir(), ".beauticode", "codex-plugin");
+}
+
+async function copyJsTree(fromDir, toDir) {
+  await fsp.mkdir(toDir, { recursive: true });
+  const entries = await fsp.readdir(fromDir, { withFileTypes: true });
+  for (const entry of entries) {
+    if (entry.name.endsWith(".map") || entry.name.endsWith(".d.ts")) continue;
+    const source = path.join(fromDir, entry.name);
+    const dest = path.join(toDir, entry.name);
+    if (entry.isDirectory()) {
+      await copyJsTree(source, dest);
+      continue;
+    }
+    if (!entry.isFile()) continue;
+    if (!entry.name.endsWith(".js") && !entry.name.endsWith(".css")) continue;
+    await fsp.copyFile(source, dest);
+  }
+}
+
+function rewriteCoreImports(text) {
+  return text
+    .replaceAll('from "@beauticode/core"', 'from "../core/index.js"')
+    .replaceAll("from '@beauticode/core'", "from '../core/index.js'");
+}
+
+async function ensureVendor(destRoot) {
+  const vendorRoot = path.join(destRoot, "vendor");
+  const vendorAdapter = path.join(vendorRoot, "adapter-codex");
+  await fsp.rm(vendorRoot, { recursive: true, force: true });
+  const packed = path.join(here, "vendor", "adapter-codex");
+  if (fs.existsSync(path.join(packed, "index.js"))) {
+    await copyJsTree(path.join(here, "vendor"), vendorRoot);
+    return;
+  }
+  const repoCore = path.resolve(here, "../../packages/core/dist");
+  const repoAdapter = path.resolve(here, "../../packages/adapter-codex/dist");
+  if (!fs.existsSync(path.join(repoAdapter, "index.js"))) {
+    throw new Error("缺少 adapter-codex 产物。请先运行 npm run build。");
+  }
+  await copyJsTree(repoCore, path.join(vendorRoot, "core"));
+  await copyJsTree(repoAdapter, vendorAdapter);
+  for (const name of await fsp.readdir(vendorAdapter)) {
+    if (!name.endsWith(".js")) continue;
+    const filePath = path.join(vendorAdapter, name);
+    await fsp.writeFile(filePath, rewriteCoreImports(await fsp.readFile(filePath, "utf8")));
+  }
+}
+
+function writeRunKey(command) {
+  if (process.platform !== "win32") return;
+  execFileSync(
+    "reg",
+    [
+      "add",
+      "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+      "/v",
+      RUN_VALUE,
+      "/t",
+      "REG_SZ",
+      "/d",
+      command,
+      "/f",
+    ],
+    { stdio: "pipe" },
+  );
+}
+
+function removeRunKey() {
+  if (process.platform !== "win32") return;
+  try {
+    execFileSync("reg", ["delete", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", "/v", RUN_VALUE, "/f"], {
+      stdio: "pipe",
+    });
+  } catch {
+    /* already absent */
+  }
+}
+
+function startHidden(node, script) {
+  const child = spawn(node, [script], {
+    detached: true,
+    stdio: "ignore",
+    windowsHide: true,
+  });
+  child.unref();
+}
+
+export async function runCli(argv = process.argv.slice(2)) {
+  const home = pluginHome();
+  const remove = argv.includes("--remove");
+  if (remove) {
+    removeRunKey();
+    console.log("已取消开机自动注入。打开 Codex 前请自行启动 beautiCode。");
+    return;
+  }
+  await fsp.mkdir(home, { recursive: true });
+  for (const name of ["watch-host.mjs", "package.json"]) {
+    await fsp.copyFile(path.join(here, name), path.join(home, name));
+  }
+  await ensureVendor(home);
+  const watch = path.join(home, "watch-host.mjs");
+  const starter = path.join(home, "start-watch.ps1");
+  await fsp.writeFile(
+    starter,
+    `Start-Process -WindowStyle Hidden -FilePath ${JSON.stringify(process.execPath)} -ArgumentList ${JSON.stringify(watch)}\r\n`,
+    "utf8",
+  );
+  writeRunKey(`powershell.exe -NoProfile -WindowStyle Hidden -File "${starter}"`);
+  startHidden(process.execPath, watch);
+  console.log("已安装 Codex 后台注入。");
+  console.log("打开 Codex Desktop 后，侧栏「探索」下方会出现「背景」。");
+  console.log(`常驻目录：${home}`);
+  console.log("卸载：npx beauticode-codex --remove");
+}
+
+if (
+  process.argv[1] &&
+  pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url
+) {
+  runCli().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  });
+}

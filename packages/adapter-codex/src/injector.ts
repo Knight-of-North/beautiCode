@@ -9,7 +9,7 @@ import {
 import { CodexHostApplier } from "./host-applier.js";
 import { probeCdp } from "./discovery.js";
 import { acquireInjectorLock } from "./injector-lock.js";
-import { loadRendererSource } from "./payload.js";
+import { loadRendererSource, MAX_CDP_INLINE_IMAGE_BYTES } from "./payload.js";
 import { BeautiSession } from "./session.js";
 
 export interface RunApplyOptions {
@@ -66,6 +66,7 @@ export async function runApplyOnce(opts: RunApplyOptions): Promise<ApplyResult> 
       host,
       cssText,
       verifyDeadlineMs: opts.verifyDeadlineMs ?? 30_000,
+      maxInlineImageBytes: MAX_CDP_INLINE_IMAGE_BYTES,
       offline: false,
     });
     return await tx.run(opts.input);

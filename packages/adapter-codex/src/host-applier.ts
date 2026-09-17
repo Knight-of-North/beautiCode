@@ -15,7 +15,11 @@ import {
   listPageTargets,
   type CdpTargetInfo,
 } from "./cdp.js";
-import { buildInjectionExpression, loadRendererSource } from "./payload.js";
+import {
+  buildInjectionExpression,
+  loadRendererSource,
+  slimCodexCdpPayload,
+} from "./payload.js";
 import {
   assessReadiness,
   SNAPSHOT_EXPRESSION,
@@ -32,6 +36,8 @@ export interface CodexHostApplierOptions {
   pollMs?: number;
   /** How long connect() may wait for a page target. */
   connectDeadlineMs?: number;
+  /** Sidebar console actions. Omit to skip injecting the 背景 entry. */
+  onConsoleRequest?: (request: Record<string, unknown>) => Promise<unknown>;
 }
 
 export interface ConnectedTarget {
@@ -59,7 +65,12 @@ export class CodexHostApplier implements HostApplier {
   private lastPayload: HostApplyPayload | null = null;
   private runtimeIife: string | null = null;
   private defaultCss: string | null = null;
+  private consoleSource: string | null = null;
   private closed = false;
+  private consoleListeners = new WeakSet<CdpSession>();
+  private onConsoleRequest:
+    | ((request: Record<string, unknown>) => Promise<unknown>)
+    | null;
   /** Serialize inject+attach so watch ticks cannot thrash a cold video start. */
   private applyChain: Promise<void> = Promise.resolve();
   private applyInFlight = false;
@@ -83,6 +94,7 @@ export class CodexHostApplier implements HostApplier {
     this.requireAppProtocol = opts.requireAppProtocol ?? true;
     this.pollMs = opts.pollMs ?? 200;
     this.connectDeadlineMs = opts.connectDeadlineMs ?? 15_000;
+    this.onConsoleRequest = opts.onConsoleRequest ?? null;
   }
 
   get lastApplied(): HostApplyPayload | null {
@@ -102,10 +114,11 @@ export class CodexHostApplier implements HostApplier {
   }
 
   async ensureSources(): Promise<void> {
-    if (this.runtimeIife && this.defaultCss) return;
+    if (this.runtimeIife && this.defaultCss && this.consoleSource) return;
     const src = await loadRendererSource();
     this.runtimeIife = src.runtimeIife;
     this.defaultCss = src.cssText;
+    this.consoleSource = src.consoleSource;
   }
 
   /**
@@ -192,7 +205,10 @@ export class CodexHostApplier implements HostApplier {
           continue;
         }
       }
-      connected.push({ target, session });
+      if (session && !session.closed) {
+        await this.ensureConsole(session);
+        connected.push({ target, session });
+      }
     }
     return connected;
   }
@@ -202,30 +218,29 @@ export class CodexHostApplier implements HostApplier {
       .map((t) => {
         let score = 0;
         const url = t.url ?? "";
+        const title = t.title ?? "";
         if (
           this.requireAppProtocol &&
           !/^(?:app:\/\/-)(?:\/|$)/i.test(url)
         ) {
           return { t, score: -1_000 };
         }
+        // Main shell only — skip chrome overlays (avatar, titlebar popouts).
+        // Injecting a full-viewport stage into those is unstable and unneeded.
         if (
-          this.requireAppProtocol &&
-          !/codex|chatgpt|openai/i.test(t.title ?? "")
+          /avatar-overlay|titlebar|utility-overlay|detached-window|initialRoute=%2Favatar/i.test(
+            url,
+          )
         ) {
           return { t, score: -1_000 };
         }
         if (url.startsWith(this.urlPrefix)) score += 10;
         if (url.startsWith("app://")) score += 5;
-        if (/codex|chatgpt/i.test(t.title ?? "")) score += 2;
-        // Main shell only — skip chrome overlays (avatar, titlebar popouts).
-        // Injecting a full-viewport stage into those is unstable and unneeded.
-        if (
-          /avatar-overlay|titlebar|utility-overlay|initialRoute=%2Favatar/i.test(
-            url,
-          )
-        ) {
-          score -= 100;
+        if (/\/index\.html(?:$|\?)/i.test(url) && !/[?&]initialRoute=/i.test(url)) {
+          score += 20;
         }
+        if (/codex|chatgpt|openai/i.test(title)) score += 4;
+        else if (!title.trim()) score += 1;
         return { t, score };
       })
       .filter((s) => s.score >= 0);
@@ -269,93 +284,188 @@ export class CodexHostApplier implements HostApplier {
     this.applyInFlight = true;
     this.lastApplyStartedAt = Date.now();
     try {
-      if (this.sessions.size === 0) {
-        await this.connect();
-      } else {
-        await this.reconcileSessions();
-      }
-      if (this.sessions.size === 0) {
-        throw new CdpError("No live CDP sessions to apply background");
-      }
-      const cssText = payload.cssText || this.defaultCss || "";
-      const expression = buildInjectionExpression(
-        this.runtimeIife!,
-        payload,
-        cssText,
-        forceRebuild,
-      );
-      const errors: string[] = [];
-      let ok = 0;
-      for (const [id, session] of this.sessions) {
-        if (session.closed) {
-          this.sessions.delete(id);
-          continue;
-        }
-        try {
-          // Same-generation healthy stage: do not re-inject or re-attach the MP4.
-          // Watch polls used to full-apply every second and flash poster/video.
-          if (
-            !forceRebuild &&
-            (await sessionHasHealthyPayload(session, payload))
-          ) {
-            // Still re-assert fish / mute prefs in case a heal dropped them.
-            if (this.fishMode) {
-              await setSessionFishMode(session, true).catch(() => false);
-            }
-            await setSessionMuted(session, this.videoMuted).catch(() => null);
-            await setSessionBackgroundTone(session, this.backgroundTone).catch(
-              () => false,
-            );
-            ok += 1;
-            continue;
-          }
-          const injectResult = await session.evaluate<{
-            skipped?: boolean;
-            installed?: boolean;
-            generation?: number;
-          } | null>(expression);
-          // Runtime same-gen short-circuit — do not re-attach blob (would flash).
-          if (injectResult && injectResult.skipped === true) {
-            if (this.fishMode) {
-              await setSessionFishMode(session, true).catch(() => false);
-            }
-            await setSessionMuted(session, this.videoMuted).catch(() => null);
-            await setSessionBackgroundTone(session, this.backgroundTone).catch(
-              () => false,
-            );
-            ok += 1;
-            continue;
-          }
-          // Dream Skin path: after a real inject, ALWAYS push the local MP4.
-          // Do not re-check "healthy" here — handoff keeps the previous video
-          // ready, which would falsely skip blob attach and leave the new
-          // generation stuck on the old frame (image/video switch retries).
-          if (payload.video?.mode === "blob" && payload.video.localPath) {
-            await attachBlobVideoToSession(session, payload.video.localPath);
-          }
-          // Re-apply fish / mute after rebuild so prefs are not lost on reinject.
-          if (this.fishMode) {
-            await setSessionFishMode(session, true).catch(() => false);
-          }
-          await setSessionMuted(session, this.videoMuted).catch(() => null);
-          await setSessionBackgroundTone(session, this.backgroundTone).catch(
-            () => false,
-          );
-          ok += 1;
-        } catch (err) {
-          errors.push(
-            `${id}: ${err instanceof Error ? err.message : String(err)}`,
-          );
-        }
-      }
-      if (ok === 0) {
-        throw new CdpError(
-          `Failed to inject background into any session: ${errors.join("; ")}`,
-        );
-      }
+      await this.applyExclusiveAttempt(payload, forceRebuild, false);
     } finally {
       this.applyInFlight = false;
     }
+  }
+
+  private async applyExclusiveAttempt(
+    payload: HostApplyPayload,
+    forceRebuild: boolean,
+    retried: boolean,
+  ): Promise<void> {
+    if (this.sessions.size === 0) {
+      await this.connect();
+    } else {
+      await this.reconcileSessions();
+    }
+    if (this.sessions.size === 0) {
+      throw new CdpError("No live CDP sessions to apply background");
+    }
+    const cssText = payload.cssText || this.defaultCss || "";
+    const expression = buildInjectionExpression(
+      this.runtimeIife!,
+      payload,
+      cssText,
+      forceRebuild,
+    );
+    const slim = slimCodexCdpPayload(payload);
+    const attachImageBlob =
+      payload.media === "image" &&
+      Boolean(payload.imageLocalPath) &&
+      !slim.imageDataUrl;
+    const errors: string[] = [];
+    let ok = 0;
+    let closedDuringApply = false;
+    for (const [id, session] of this.sessions) {
+      if (session.closed) {
+        this.sessions.delete(id);
+        closedDuringApply = true;
+        continue;
+      }
+      try {
+        // Same-generation healthy stage: do not re-inject or re-attach the MP4.
+        // Watch polls used to full-apply every second and flash poster/video.
+        if (
+          !forceRebuild &&
+          (await sessionHasHealthyPayload(session, payload))
+        ) {
+          // Still re-assert fish / mute prefs in case a heal dropped them.
+          if (this.fishMode) {
+            await setSessionFishMode(session, true).catch(() => false);
+          }
+          await setSessionMuted(session, this.videoMuted).catch(() => false);
+          await setSessionBackgroundTone(session, this.backgroundTone).catch(
+            () => false,
+          );
+          await this.ensureConsole(session);
+          ok += 1;
+          continue;
+        }
+        const injectResult = await session.evaluate<{
+          skipped?: boolean;
+          installed?: boolean;
+          generation?: number;
+        } | null>(expression);
+        // Runtime same-gen short-circuit — do not re-attach blob (would flash).
+        if (injectResult && injectResult.skipped === true) {
+          if (this.fishMode) {
+            await setSessionFishMode(session, true).catch(() => false);
+          }
+          await setSessionMuted(session, this.videoMuted).catch(() => false);
+          await setSessionBackgroundTone(session, this.backgroundTone).catch(
+            () => false,
+          );
+          await this.ensureConsole(session);
+          ok += 1;
+          continue;
+        }
+        // Dream Skin path: after a real inject, ALWAYS push the local MP4.
+        // Do not re-check "healthy" here — handoff keeps the previous video
+        // ready, which would falsely skip blob attach and leave the new
+        // generation stuck on the old frame (image/video switch retries).
+        if (payload.video?.mode === "blob" && payload.video.localPath) {
+          await attachBlobVideoToSession(session, payload.video.localPath);
+        }
+        if (attachImageBlob && payload.imageLocalPath) {
+          await attachBlobImageToSession(session, payload.imageLocalPath);
+        }
+        // Re-apply fish / mute after rebuild so prefs are not lost on reinject.
+        if (this.fishMode) {
+          await setSessionFishMode(session, true).catch(() => false);
+        }
+        await setSessionMuted(session, this.videoMuted).catch(() => false);
+        await setSessionBackgroundTone(session, this.backgroundTone).catch(
+          () => false,
+        );
+        await this.ensureConsole(session);
+        ok += 1;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        errors.push(`${id}: ${message}`);
+        if (isCdpClosedError(message)) closedDuringApply = true;
+      }
+    }
+    if (ok === 0) {
+      if (!retried && closedDuringApply) {
+        this.closeAllSessions();
+        await this.connect();
+        await this.applyExclusiveAttempt(payload, true, true);
+        return;
+      }
+      throw new CdpError(
+        `Failed to inject background into any session: ${errors.join("; ")}`,
+      );
+    }
+  }
+
+  private async ensureConsole(session: CdpSession): Promise<void> {
+    if (!this.onConsoleRequest || session.closed) return;
+    await this.ensureSources();
+    try {
+      await session.send("Runtime.addBinding", { name: "beauticodeConsole" });
+    } catch {
+      // Binding can already exist after a CDP reconnect to the same renderer.
+      // Still attach listeners and re-evaluate the UI, or every control dies.
+    }
+    if (!this.consoleListeners.has(session)) {
+      session.on("Runtime.bindingCalled", (params) => {
+        void this.dispatchConsole(session, params);
+      });
+      session.on("Page.loadEventFired", () => {
+        void this.healAfterNavigation(session);
+      });
+      this.consoleListeners.add(session);
+    }
+    if (!this.consoleSource) return;
+    await session.evaluate(this.consoleSource).catch(() => null);
+  }
+
+  private async healAfterNavigation(session: CdpSession): Promise<void> {
+    if (this.closed || session.closed) return;
+    await this.ensureConsole(session);
+    if (this.applyInFlight || !this.lastPayload) return;
+    await this.apply(this.lastPayload, { forceRebuild: true }).catch(() => {});
+  }
+
+  private async dispatchConsole(
+    session: CdpSession,
+    params: unknown,
+  ): Promise<void> {
+    if (!this.onConsoleRequest || session.closed) return;
+    const body =
+      params && typeof params === "object"
+        ? (params as { name?: string; payload?: string })
+        : null;
+    if (body?.name !== "beauticodeConsole" || typeof body.payload !== "string") {
+      return;
+    }
+    let request: { id?: unknown } = {};
+    try {
+      request = JSON.parse(body.payload) as { id?: unknown };
+    } catch {
+      return;
+    }
+    const id = typeof request.id === "string" ? request.id : "";
+    if (!id) return;
+    let ok = true;
+    let payload: unknown = { ok: false, error: "背景操作失败。" };
+    try {
+      payload = await this.onConsoleRequest(request);
+    } catch (error) {
+      ok = false;
+      payload = {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+        code: (error as { code?: string }).code || "",
+      };
+    }
+    await session
+      .evaluate(
+        `window.__beauticodeBridgeResult(${JSON.stringify(id)},${ok ? "true" : "false"},${JSON.stringify(payload)})`,
+      )
+      .catch(() => null);
   }
 
   /**
@@ -815,6 +925,10 @@ export class CodexHostApplier implements HostApplier {
 
   close(): void {
     this.closed = true;
+    this.closeAllSessions();
+  }
+
+  private closeAllSessions(): void {
     for (const session of this.sessions.values()) session.close();
     this.sessions.clear();
   }
@@ -825,6 +939,18 @@ export class CodexHostApplier implements HostApplier {
 }
 
 const VIDEO_INPUT_SELECTOR = "#beauticode-video-input";
+const IMAGE_INPUT_SELECTOR = "#beauticode-image-input";
+
+function isCdpClosedError(message: string): boolean {
+  const m = message.toLowerCase();
+  return (
+    m.includes("session is closed") ||
+    m.includes("session closed") ||
+    m.includes("socket closed") ||
+    m.includes("websocket is closed") ||
+    m.includes("target closed")
+  );
+}
 
 async function setSessionFishMode(
   session: CdpSession,
@@ -1034,6 +1160,7 @@ async function attachBlobVideoToSession(
   let lastError: unknown = null;
   while (Date.now() < deadline) {
     try {
+      await session.send("Page.bringToFront").catch(() => {});
       const inputReady = await session.evaluate<boolean>(
         `Boolean(window.__BEAUTICODE_BG__ && typeof window.__BEAUTICODE_BG__.ensureVideoInput === "function" && window.__BEAUTICODE_BG__.ensureVideoInput())`,
       );
@@ -1081,7 +1208,7 @@ async function attachBlobVideoToSession(
         await session
           .evaluate(
             `(async () => {
-          const v = document.querySelector("#beauticode-bg-stage video");
+          const v = document.querySelector("#beauticode-bg-stage video:last-of-type");
           if (!v) return false;
           try {
             v.muted = true;
@@ -1102,17 +1229,25 @@ async function attachBlobVideoToSession(
           .catch(() => false);
         return;
       }
-      const prepared = await session.evaluate<boolean>(`(() => {
-        const api = window.__BEAUTICODE_BG__;
-        const video = document.querySelector("#beauticode-bg-stage video");
-        return Boolean(video && video.src && !(api && api.videoFailed));
-      })()`);
-      if (prepared) return;
-      const failed = await session.evaluate<boolean>(
-        `Boolean(window.__BEAUTICODE_BG__ && window.__BEAUTICODE_BG__.videoFailed)`,
-      );
+      // Own-generation readiness only. A handed-off previous <video src>
+      // must not count as "this file is attached".
+      const snap = await session.evaluate<{
+        missingRuntime?: boolean;
+        videoReady?: boolean;
+        videoFailed?: boolean;
+        hasPlayableSrc?: boolean;
+      }>(SNAPSHOT_EXPRESSION);
+      if (
+        snap &&
+        !snap.missingRuntime &&
+        snap.videoReady &&
+        snap.hasPlayableSrc === true &&
+        !snap.videoFailed
+      ) {
+        return;
+      }
       // Runtime already reported failure — let verify surface it; don't loop.
-      if (failed) return;
+      if (snap?.videoFailed) return;
     } catch (err) {
       lastError = err;
     }
@@ -1121,6 +1256,86 @@ async function attachBlobVideoToSession(
   const detail =
     lastError instanceof Error ? lastError.message : String(lastError ?? "timed out");
   throw new CdpError(`Could not attach the local MP4 through CDP: ${detail}`);
+}
+
+/**
+ * Push a host-local still into the page via CDP DOM.setFileInputFiles.
+ * Large PNGs/JPEGs must not ride inside Runtime.evaluate as data URLs.
+ */
+async function attachBlobImageToSession(
+  session: CdpSession,
+  localPath: string,
+): Promise<void> {
+  const deadline = Date.now() + 8_000;
+  let lastError: unknown = null;
+  while (Date.now() < deadline) {
+    try {
+      await session.send("Page.bringToFront").catch(() => {});
+      const inputReady = await session.evaluate<boolean>(
+        `Boolean(window.__BEAUTICODE_BG__ && typeof window.__BEAUTICODE_BG__.ensureImageInput === "function" && window.__BEAUTICODE_BG__.ensureImageInput())`,
+      );
+      if (!inputReady) {
+        throw new Error("Renderer did not create the image file input");
+      }
+      await session.send("DOM.enable");
+      const doc = (await session.send("DOM.getDocument", {
+        depth: 0,
+        pierce: false,
+      })) as { root?: { nodeId?: number } };
+      const rootId = doc?.root?.nodeId;
+      if (typeof rootId !== "number") {
+        throw new Error("DOM.getDocument returned no root nodeId");
+      }
+      const node = (await session.send("DOM.querySelector", {
+        nodeId: rootId,
+        selector: IMAGE_INPUT_SELECTOR,
+      })) as { nodeId?: number };
+      if (!node?.nodeId) {
+        throw new Error("Image file input is not attached to the renderer DOM");
+      }
+      await session.send("DOM.setFileInputFiles", {
+        nodeId: node.nodeId,
+        files: [localPath],
+      });
+      const attached = await session.evaluate<boolean>(
+        `(async () => {
+        const api = window.__BEAUTICODE_BG__;
+        if (!api || typeof api.attachImageFile !== "function") return false;
+        try {
+          return Boolean(await api.attachImageFile());
+        } catch (_) {
+          return false;
+        }
+      })()`,
+        { userGesture: true },
+      );
+      if (attached) return;
+      const snap = await session.evaluate<{
+        missingRuntime?: boolean;
+        hasImage?: boolean;
+        imageLoaded?: boolean;
+        imageFailed?: boolean;
+      }>(SNAPSHOT_EXPRESSION);
+      if (
+        snap &&
+        !snap.missingRuntime &&
+        snap.hasImage &&
+        snap.imageLoaded === true &&
+        !snap.imageFailed
+      ) {
+        return;
+      }
+      if (snap?.imageFailed) return;
+    } catch (err) {
+      lastError = err;
+    }
+    await sleep(120);
+  }
+  const detail =
+    lastError instanceof Error ? lastError.message : String(lastError ?? "timed out");
+  throw new CdpError(
+    `Could not attach the local still image through CDP: ${detail}`,
+  );
 }
 
 function sleep(ms: number): Promise<void> {

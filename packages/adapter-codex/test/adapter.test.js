@@ -7,6 +7,9 @@ import {
   assessReadiness,
   browserIdFromVersion,
   buildInjectionExpression,
+  slimCodexCdpPayload,
+  TINY_PNG_DATA_URL,
+  MAX_CDP_DATA_URL_CHARS,
   CodexHostApplier,
   isCandidatePageTarget,
   MemoryHostApplier,
@@ -24,6 +27,35 @@ import {
 import { startMockCdp } from "./mock-cdp.js";
 import http from "node:http";
 
+test("slimCodexCdpPayload drops huge video posters and blob dataUrls", () => {
+  const huge = `data:image/png;base64,${"A".repeat(MAX_CDP_DATA_URL_CHARS + 10)}`;
+  const slim = slimCodexCdpPayload({
+    generation: 3,
+    media: "video",
+    imageDataUrl: huge,
+    imageUrl: null,
+    video: {
+      mode: "blob",
+      localPath: "C:\\tmp\\a.mp4",
+      dataUrl: "data:video/mp4;base64,AAAA",
+    },
+    cssText: "",
+  });
+  assert.equal(slim.imageDataUrl, TINY_PNG_DATA_URL);
+  assert.equal(slim.video?.mode, "blob");
+  assert.equal(slim.video?.localPath, "C:\\tmp\\a.mp4");
+  assert.equal("dataUrl" in (slim.video ?? {}), false);
+  const image = slimCodexCdpPayload({
+    generation: 3,
+    media: "image",
+    imageDataUrl: huge,
+    imageUrl: null,
+    video: null,
+    cssText: "",
+  });
+  assert.equal(image.imageDataUrl, null);
+});
+
 test("buildInjectionExpression JSON-encodes payload args", () => {
   const runtime = "((a,b,c,d,e,f)=>{return {a,b,c,d,e,f}})";
   const expr = buildInjectionExpression(
@@ -40,7 +72,7 @@ test("buildInjectionExpression JSON-encodes payload args", () => {
   );
   assert.match(
     expr,
-    /,7,"http:\/\/127\.0\.0\.1:9\/media\/abc\?t=abc",false\)$/,
+    /,7,"http:\/\/127\.0\.0\.1:9\/media\/abc\?t=abc",false,false\)$/,
   );
   assert.equal(expr.includes('abc"XSS'), false);
   assert.ok(expr.includes("abc\\\"XSS"));
@@ -56,7 +88,23 @@ test("buildInjectionExpression JSON-encodes payload args", () => {
     "",
     true,
   );
-  assert.match(forced, /,true\)$/);
+  assert.match(forced, /,true,false\)$/);
+  const blobStill = buildInjectionExpression(
+    runtime,
+    {
+      generation: 7,
+      media: "image",
+      imageDataUrl: null,
+      imageUrl: null,
+      imageLocalPath: "C:\\tmp\\big.png",
+      video: null,
+      cssText: "",
+    },
+    "",
+  );
+  assert.match(blobStill, /,7,null,false,true\)$/);
+  assert.equal(blobStill.includes("C:\\\\tmp\\\\big.png"), false);
+  assert.equal(blobStill.includes("C:\\tmp\\big.png"), false);
 });
 
 test("assessReadiness enforces generation, pointer-events, overflow, hidden", () => {
@@ -370,6 +418,41 @@ test("CodexHostApplier injects and verifies against mock CDP", async () => {
   }
 });
 
+test("CodexHostApplier connects to untitled app:// Codex shell", async () => {
+  const mock = await startMockCdp({ title: "" });
+  const host = new CodexHostApplier({
+    port: mock.port,
+    requireAppProtocol: true,
+    connectDeadlineMs: 5_000,
+    pollMs: 50,
+  });
+  try {
+    const connected = await host.connect();
+    assert.equal(connected.length, 1);
+  } finally {
+    host.close();
+    await mock.close();
+  }
+});
+
+test("CodexHostApplier still injects 背景 console after addBinding already exists", async () => {
+  const mock = await startMockCdp({ addBindingError: "binding already registered" });
+  const host = new CodexHostApplier({
+    port: mock.port,
+    requireAppProtocol: true,
+    connectDeadlineMs: 5_000,
+    pollMs: 50,
+    onConsoleRequest: async () => ({ ok: true }),
+  });
+  try {
+    await host.connect();
+    assert.equal(mock.state.consoleInstalled, true);
+  } finally {
+    host.close();
+    await mock.close();
+  }
+});
+
 test("CodexHostApplier verify fails on generation mismatch", async () => {
   const mock = await startMockCdp();
   const host = new CodexHostApplier({
@@ -582,6 +665,7 @@ test("BeautiSession applies image against mock CDP", async () => {
     assert.equal(st.manifest.background?.type, "image");
     const reapplied = await session.reapply();
     assert.equal(reapplied.ok, true, reapplied.ok ? "" : reapplied.error);
+    assert.equal(mock.state.consoleInstalled, true);
     const clear = await session.apply({ type: "clear" });
     assert.equal(clear.ok, true, clear.ok ? "" : clear.error);
   } finally {
@@ -735,6 +819,30 @@ test("fish mode CSS and runtime expose data-bc-fish helpers", async () => {
   // Current Codex builds use a CSS-module hash for the main viewport's
   // otherwise opaque top fade; keep the stable component-name fragment.
   assert.match(css, /\[class\*="_MainContentTopFade_"\]/);
+  assert.match(css, /\[class\*="token-main-surface"\]/);
+  assert.doesNotMatch(css, /--bc-panel:/);
+  assert.doesNotMatch(css, /--bc-working-main/);
+  assert.match(
+    css,
+    /aside\.app-shell-left-panel[\s\S]{0,200}background:\s*transparent !important;/,
+  );
+  assert.match(css, /backdrop-filter:\s*none !important;/);
+  assert.doesNotMatch(css, /backdrop-filter:\s*blur\(/);
+  assert.match(css, /data-bc-dim-user/);
+  assert.match(
+    css,
+    /\[data-bc-dim-user="true"\]\[data-bc-active="true"\] #beauticode-bg-stage::after/,
+  );
+  assert.match(css, /\[class\*="MainSurface"\]/);
+  assert.match(
+    css,
+    /\[data-bc-video-ready="true"\][\s\S]{0,80}#beauticode-bg-stage[\s\S]{0,40}video \{[\s\S]{0,40}opacity:\s*1 !important;/,
+  );
+  assert.match(runtime, /if \(videoReady\) \{\s*revealVideo\(\);/);
+  assert.match(
+    runtime,
+    /#beauticode-bg-stage video[\s\S]{0,80}v\.style\.opacity = ""/,
+  );
   assert.match(runtime, /setBackgroundTone/);
   assert.match(runtime, /data-bc-tone/);
   assert.match(runtime, /getPlaybackPosition/);
@@ -743,6 +851,18 @@ test("fish mode CSS and runtime expose data-bc-fish helpers", async () => {
   assert.match(runtime, /pendingStartAt/);
   assert.match(runtime, /isTaskOrProjectView/);
   assert.match(runtime, /detectWorking/);
+  // Inject must finish apply() before returning; otherwise CDP blob attach
+  // races the stage rebuild and every video import fails verify.
+  assert.match(runtime, /window\.__BEAUTICODE_BG__ = api;/);
+  assert.match(runtime, /return Promise\.resolve\(\)\s*\.then\(apply\)/);
+  assert.match(runtime, /beauticode-image-input/);
+  assert.match(runtime, /wantImageBlob/);
+  assert.match(runtime, /videoEl\.style\.opacity = ""/);
+  assert.match(runtime, /Promise\.resolve\(videoEl\.play\?\.\(\)\)/);
+  assert.doesNotMatch(
+    runtime,
+    /Promise\.resolve\(\)\s*\.then\(apply\)\s*\.catch\([\s\S]{0,240}\)\s*;\s*return \{ installed: true/,
+  );
   assert.doesNotMatch(runtime, /isAgentBusy/);
   assert.match(css, /#beauticode-bg-stage::before/);
   assert.match(

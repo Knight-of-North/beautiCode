@@ -1,0 +1,27 @@
+{
+  "name": "beauticode-codex",
+  "version": "1.0.0",
+  "description": "Codex Desktop sidebar backgrounds via loopback CDP. Unofficial.",
+  "type": "module",
+  "bin": {
+    "beauticode-codex": "bin/beauticode-codex"
+  },
+  "exports": {
+    ".": {
+      "import": "./cli.js"
+    }
+  },
+  "files": [
+    "cli.js",
+    "watch-host.mjs",
+    "bin/beauticode-codex",
+    "vendor"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "MIT"
+}
