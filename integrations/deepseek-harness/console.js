@@ -16,54 +16,55 @@
 #beauticode-console.rail .bc-label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 #beauticode-console .bc-icon{flex:none;display:block}
 #beauticode-console .bc-label{white-space:nowrap;overflow:hidden}
-#beauticode-console-pop{position:fixed;z-index:2000;box-sizing:border-box;width:256px;padding:0 14px 12px;border:1px solid rgba(23,26,29,.24);border-top:4px solid #252a30;border-radius:2px;background:#ece9e2;color:#202327;box-shadow:0 16px 36px rgba(0,0,0,.34);font:inherit;font-size:13px}
+#beauticode-console-pop{position:fixed;z-index:2000;box-sizing:border-box;width:264px;padding:4px;border:0;border-radius:20px;background:var(--dsw-specific-menu);--dsw-elevation-stroke-color:var(--dsw-alias-border-l1);box-shadow:var(--dsw-elevation-prominent);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;overflow:hidden}
 #beauticode-console-pop *{box-sizing:border-box;font-family:inherit}
-body:not([data-ds-dark-theme]) #beauticode-console-pop{background:#f3f0e9;color:#202327;border-color:rgba(23,26,29,.22)}
-#beauticode-console-pop .bc-head{display:flex;align-items:flex-end;justify-content:space-between;gap:10px;padding:12px 0 10px;border-bottom:1px solid #b9b6af}
-#beauticode-console-pop .bc-title{margin:0;font:650 16px/20px Georgia,"Songti SC","STSong",serif;letter-spacing:.02em}
-#beauticode-console-pop .bc-status{min-width:0;max-width:142px;color:#686d71;font:10px/15px ui-monospace,"Cascadia Mono",monospace;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#beauticode-console-pop .bc-import{cursor:pointer;display:grid;grid-template-columns:34px minmax(0,1fr) 18px;align-items:center;width:100%;min-height:49px;padding:0;border:0;border-bottom:1px solid #c8c5be;background:transparent;color:inherit;text-align:left}
-#beauticode-console-pop .bc-import:hover{background:rgba(32,35,39,.05)}
-#beauticode-console-pop .bc-index{color:#74787b;font:10px ui-monospace,"Cascadia Mono",monospace}
-#beauticode-console-pop .bc-import-copy{min-width:0}
-#beauticode-console-pop .bc-import strong{display:block;font-size:13px;line-height:17px;font-weight:650}
-#beauticode-console-pop .bc-import small{display:block;color:#717579;font-size:10px;line-height:14px}
-#beauticode-console-pop .bc-arrow{font-size:16px;text-align:right}
-#beauticode-console-pop .bc-controls{display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid #c8c5be}
-#beauticode-console-pop .bc-dim{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:8px 0;border-bottom:1px solid #c8c5be}
-#beauticode-console-pop .bc-dim-label{color:#686d71;font:10px ui-monospace,"Cascadia Mono",monospace}
-#beauticode-console-pop .bc-dim-slider{-webkit-appearance:none;appearance:none;flex:1;min-width:72px;height:4px;margin:0;padding:0;background:#c8c5be;border-radius:0}
-#beauticode-console-pop .bc-dim-slider::-webkit-slider-runnable-track{height:4px;background:#c8c5be;border-radius:0}
-#beauticode-console-pop .bc-dim-slider::-webkit-slider-thumb{-webkit-appearance:none;width:10px;height:10px;margin-top:-3px;background:#252a30;border:0;border-radius:0;cursor:pointer}
-#beauticode-console-pop .bc-dim-value{min-width:2.6em;color:#686d71;font:10px/15px ui-monospace,"Cascadia Mono",monospace;text-align:right}
-#beauticode-console-pop .bc-link{cursor:pointer;height:auto;padding:0;border:0;background:transparent;color:#595e62;font-size:11px;line-height:18px;text-decoration:underline;text-underline-offset:3px}
-#beauticode-console-pop .bc-link:hover{color:#171a1d}
-#beauticode-console-pop .bc-theme-toggle{cursor:pointer;display:flex;align-items:center;justify-content:space-between;width:100%;height:31px;padding:8px 0 4px;border:0;background:transparent;color:#686d71;font:10px ui-monospace,"Cascadia Mono",monospace;letter-spacing:.08em;text-align:left}
+#beauticode-console-pop .bc-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 8px 3px}
+#beauticode-console-pop .bc-title{margin:0;color:var(--dsw-alias-label-tertiary);font-size:12px;font-weight:500;line-height:18px;letter-spacing:.06em}
+#beauticode-console-pop .bc-status{min-width:0;max-width:152px;color:var(--dsw-alias-label-caption);font-size:12px;line-height:18px;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#beauticode-console-pop .bc-row{cursor:pointer;display:flex;align-items:center;gap:8px;width:100%;min-height:38px;padding:6px 8px;border:0;border-radius:10px;outline:none;background:0 0;color:var(--dsw-alias-label-primary);font:inherit;font-size:14px;line-height:22px;text-align:left}
+#beauticode-console-pop .bc-row:hover:not(:disabled),#beauticode-console-pop .bc-row:focus-visible{background:var(--dsw-alias-interactive-bg-hover)}
+#beauticode-console-pop .bc-row-icon{flex:none;display:block;color:var(--dsw-alias-label-secondary)}
+#beauticode-console-pop .bc-row-copy{min-width:0;flex:1}
+#beauticode-console-pop .bc-row strong{display:block;font-weight:400}
+#beauticode-console-pop .bc-row small{display:block;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}
+#beauticode-console-pop .bc-sep{height:0;margin:4px 0;border-top:.5px solid var(--dsw-alias-border-l2)}
+#beauticode-console-pop .bc-dim{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:4px;padding:8px;border-top:.5px solid var(--dsw-alias-border-l2)}
+#beauticode-console-pop .bc-dim-label{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}
+#beauticode-console-pop .bc-dim-slider{-webkit-appearance:none;appearance:none;flex:1;min-width:72px;height:4px;margin:0;padding:0;border-radius:999px;background:var(--dsw-alias-border-l3);cursor:pointer}
+#beauticode-console-pop .bc-dim-slider::-webkit-slider-runnable-track{height:4px;border-radius:999px;background:var(--dsw-alias-border-l3)}
+#beauticode-console-pop .bc-dim-slider::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;margin-top:-5px;border:.5px solid var(--dsw-alias-border-l4);border-radius:50%;background:var(--dsw-alias-bg-layer-1);box-shadow:var(--dsw-shadow-lv1);cursor:pointer}
+#beauticode-console-pop .bc-dim-value{min-width:2.6em;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;font-variant-numeric:tabular-nums;text-align:right}
+#beauticode-console-pop .bc-link{cursor:pointer;height:auto;padding:0;border:0;border-radius:6px;background:0 0;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:18px;text-decoration:underline;text-underline-offset:3px}
+#beauticode-console-pop .bc-link:hover{color:var(--dsw-alias-label-primary)}
+#beauticode-console-pop .bc-themes{margin-top:4px;border-top:.5px solid var(--dsw-alias-border-l2)}
+#beauticode-console-pop .bc-theme-toggle{cursor:pointer;display:flex;align-items:center;justify-content:space-between;width:100%;height:auto;padding:5px 8px 3px;border:0;background:0 0;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:12px;font-weight:500;line-height:18px;letter-spacing:.06em;text-align:left}
 #beauticode-console-pop .bc-theme-list{max-height:150px;overflow:auto;scrollbar-width:thin}
-#beauticode-console-pop .bc-theme-row{display:flex;align-items:center;min-width:0;border-bottom:1px dotted #bbb8b1}
-#beauticode-console-pop .bc-theme-row:last-child{border-bottom:0}
-#beauticode-console-pop .bc-theme-item{cursor:pointer;display:flex;align-items:center;flex:1;min-width:0;height:31px;padding:0;border:0;background:transparent;color:inherit;font-size:12px;line-height:31px;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#beauticode-console-pop .bc-theme-item::before{content:"";flex:none;width:16px;font-size:9px}
-#beauticode-console-pop .bc-theme-item[aria-current="true"]{font-weight:650}
+#beauticode-console-pop .bc-theme-row{display:flex;align-items:center;min-width:0}
+#beauticode-console-pop .bc-theme-item{cursor:pointer;display:flex;align-items:center;gap:8px;flex:1;min-width:0;min-height:32px;padding:4px 8px;border:0;border-radius:10px;background:0 0;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;line-height:20px;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#beauticode-console-pop .bc-theme-item::before{content:"";flex:none;width:14px;font-size:9px;color:var(--dsw-alias-state-business-primary)}
+#beauticode-console-pop .bc-theme-item[aria-current="true"]{font-weight:500}
 #beauticode-console-pop .bc-theme-item[aria-current="true"]::before{content:"●"}
-#beauticode-console-pop .bc-theme-item:hover{background:rgba(32,35,39,.05)}
-#beauticode-console-pop .bc-source{margin-left:auto;padding-left:6px;color:#777b7e;font:9px ui-monospace,"Cascadia Mono",monospace}
-#beauticode-console-pop .bc-theme-del{cursor:pointer;flex:none;width:22px;height:28px;padding:0;border:0;background:transparent;color:#777b7e;font-size:15px;line-height:28px;opacity:.66}
-#beauticode-console-pop .bc-theme-del:hover{color:#802f2f;opacity:1}
+#beauticode-console-pop .bc-theme-item:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}
+#beauticode-console-pop .bc-source{flex:none;margin-left:auto;padding:0 4px;border-radius:6px;background:var(--dsw-specific-sidebar-nav-item-active-accent);color:var(--dsw-alias-button-info-fill);font-size:11px;font-weight:600;line-height:18px}
+#beauticode-console-pop .bc-theme-del{cursor:pointer;flex:none;width:24px;height:28px;padding:0;border:0;border-radius:8px;background:0 0;color:var(--dsw-alias-label-tertiary);font-size:15px;line-height:28px}
+#beauticode-console-pop .bc-theme-del:hover{color:var(--dsw-alias-state-error-primary);background:var(--dsw-alias-interactive-bg-hover-danger)}
 #beauticode-console-pop .bc-btn:disabled,#beauticode-console-pop .bc-theme-toggle:disabled,#beauticode-console-pop .bc-theme-item:disabled,#beauticode-console-pop .bc-theme-del:disabled{opacity:.38;cursor:default}
-#beauticode-console-pop[data-busy="true"] .bc-head::before{content:"";width:5px;height:5px;margin:0 0 6px;background:#6d7f8c;animation:bc-pulse .9s steps(2,end) infinite}
-#beauticode-console-pop .bc-msg{margin:9px 0 0;color:#656a6e;font-size:11px;line-height:16px;max-height:3.2em;overflow:hidden}
+#beauticode-console-pop[data-busy="true"] .bc-title::before{content:"";display:inline-block;width:6px;height:6px;margin-right:6px;border-radius:50%;background:var(--dsw-alias-state-business-primary);animation:bc-pulse .9s steps(2,end) infinite}
+#beauticode-console-pop .bc-msg{margin:4px 0 0;padding:0 8px 6px;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;max-height:3.6em;overflow:hidden}
 @keyframes bc-pulse{50%{opacity:.25}}
 #beauticode-console-file{display:none !important}
-#beauticode-name-dialog{position:fixed;inset:0;z-index:3000;display:grid;place-items:center;padding:24px;background:rgba(0,0,0,.42);font:inherit}
-#beauticode-name-dialog .bc-name-card{display:flex;flex-direction:column;gap:10px;width:min(380px,calc(100vw - 48px));padding:20px;border:1px solid #aaa69e;border-top:4px solid #252a30;border-radius:2px;background:#ece9e2;color:#202327;box-shadow:0 18px 60px rgba(0,0,0,.35)}
-#beauticode-name-dialog .bc-name-title{margin:0;font:650 17px Georgia,"Songti SC","STSong",serif}
-#beauticode-name-dialog .bc-name-file,#beauticode-name-dialog .bc-name-note,#beauticode-name-dialog .bc-name-error{margin:0;color:#666b6f;font-size:12px;line-height:18px;overflow-wrap:anywhere}
-#beauticode-name-dialog .bc-name-error{color:#8d3030}
-#beauticode-name-dialog input{height:38px;padding:0 10px;border:1px solid #a8a49c;border-radius:0;background:#f7f4ed;color:inherit;font:inherit;font-size:13px}
-#beauticode-name-dialog .bc-name-actions{display:flex;justify-content:flex-end;gap:8px}
-#beauticode-name-dialog button{cursor:pointer;height:34px;padding:0 13px;border:1px solid #8d8a84;border-radius:0;background:transparent;color:inherit;font:inherit}
-#beauticode-name-dialog button[data-name="confirm"]{background:#252a30;border-color:#252a30;color:#f7f4ed}
+#beauticode-name-dialog{position:fixed;inset:0;z-index:3000;display:grid;place-items:center;padding:24px;background:var(--dsw-alias-bg-mask-1);font:inherit}
+#beauticode-name-dialog .bc-name-card{display:flex;flex-direction:column;gap:10px;width:min(380px,calc(100vw - 48px));padding:20px;border:0;border-radius:20px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);box-shadow:var(--dsw-elevation-prominent)}
+#beauticode-name-dialog .bc-name-title{margin:0;font-size:16px;font-weight:600;line-height:24px}
+#beauticode-name-dialog .bc-name-file,#beauticode-name-dialog .bc-name-note,#beauticode-name-dialog .bc-name-error{margin:0;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;overflow-wrap:anywhere}
+#beauticode-name-dialog .bc-name-error{color:var(--dsw-alias-state-error-primary)}
+#beauticode-name-dialog input{height:38px;padding:0 12px;border:.5px solid var(--dsw-alias-border-l4);border-radius:10px;background:var(--dsw-specific-input-major);color:var(--dsw-alias-label-primary);font:inherit;font-size:14px}
+#beauticode-name-dialog input:focus{outline:none;box-shadow:0 0 0 1px var(--dsw-alias-bg-layer-2),0 0 0 2px color-mix(in srgb,var(--dsw-alias-state-business-primary) 80%,transparent)}
+#beauticode-name-dialog .bc-name-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:4px}
+#beauticode-name-dialog button{cursor:pointer;height:36px;padding:0 14px;border:.5px solid var(--dsw-alias-border-l3);border-radius:10px;background:0 0;color:var(--dsw-alias-label-primary);font:inherit;font-size:14px}
+#beauticode-name-dialog button:hover{background:var(--dsw-alias-interactive-bg-hover)}
+#beauticode-name-dialog button[data-name="confirm"]{background:var(--dsw-alias-button-primary-fill);border-color:transparent;color:var(--dsw-alias-label-primary-foreground)}
+#beauticode-name-dialog button[data-name="confirm"]:hover{background:var(--dsw-alias-button-primary-hover)}
 `;
   document.head.append(style);
 
@@ -83,13 +84,21 @@ body:not([data-ds-dark-theme]) #beauticode-console-pop{background:#f3f0e9;color:
   pop.hidden = true;
   pop.innerHTML =
     '<header class="bc-head"><h2 class="bc-title">背景清单</h2><span class="bc-status">未就绪</span></header>' +
-    '<button type="button" class="bc-btn bc-import" data-act="image"><span class="bc-index">01</span><span class="bc-import-copy"><strong>导入图片</strong><small>直接引用本地文件</small></span><span class="bc-arrow">→</span></button>' +
-    '<button type="button" class="bc-btn bc-import" data-act="video"><span class="bc-index">02</span><span class="bc-import-copy"><strong>导入视频</strong><small>MP4 · 零复制播放</small></span><span class="bc-arrow">→</span></button>' +
-    '<div class="bc-controls">' +
-    '<button type="button" class="bc-btn bc-link" data-act="sound">声音已关</button>' +
-    '<button type="button" class="bc-btn bc-link" data-act="clear">清除背景</button>' +
-    '<button type="button" class="bc-btn bc-link" data-act="gallery">打开皮肤中心</button>' +
-    "</div>" +
+    '<button type="button" class="bc-btn bc-row" data-act="image">' +
+    '<svg class="bc-row-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">' +
+    '<rect x="1.75" y="3.25" width="12.5" height="9.5" rx="2" stroke="currentColor" stroke-width="1.25"/>' +
+    '<path d="M2.5 11.25 5.6 8.2a1 1 0 0 1 1.35 0L9.2 10.4l1.05-.95a1 1 0 0 1 1.3.04L13.5 11.3" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>' +
+    '<circle cx="5.25" cy="6.25" r="1" fill="currentColor"/></svg>' +
+    '<span class="bc-row-copy"><strong>导入图片</strong><small>直接引用本地文件</small></span></button>' +
+    '<button type="button" class="bc-btn bc-row" data-act="video">' +
+    '<svg class="bc-row-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">' +
+    '<rect x="1.75" y="3.25" width="12.5" height="9.5" rx="2" stroke="currentColor" stroke-width="1.25"/>' +
+    '<path d="M6.6 6.3v3.4l3-1.7z" fill="currentColor"/></svg>' +
+    '<span class="bc-row-copy"><strong>导入视频</strong><small>MP4 · 零复制播放</small></span></button>' +
+    '<div class="bc-sep"></div>' +
+    '<button type="button" class="bc-btn bc-row" data-act="sound">声音已关</button>' +
+    '<button type="button" class="bc-btn bc-row" data-act="clear">清除背景</button>' +
+    '<button type="button" class="bc-btn bc-row" data-act="gallery">打开皮肤中心</button>' +
     '<div class="bc-dim">' +
     '<span class="bc-dim-label">阴影</span>' +
     '<input type="range" class="bc-dim-slider" min="0" max="100" step="1" value="42" aria-label="背景阴影"/>' +
