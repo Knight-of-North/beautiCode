@@ -670,6 +670,77 @@ test("console leaves the browser picker closed when the host picker is required"
   assert.equal(filePicker(document).clicks ?? 0, 0, "and none appears once the round trip settles");
 });
 
+test("console keeps the picker closed until importPolicy arrives", async () => {
+  const document = createConsoleDocument();
+  mountSettingsDialog(document);
+  const hits = [];
+  await loadConsole(document, {
+    fetch: async (path) => {
+      hits.push(String(path));
+      return { ok: false, json: async () => ({}) };
+    },
+  });
+
+  navCell(document).click();
+  const page = pageEl(document);
+  const imageButton = page.querySelector('[data-act="image"]');
+  assert.equal(imageButton.disabled, true, "import stays locked until /ui/status reports a policy");
+  assert.equal(page.querySelector(".bc-page-intro").textContent, "给 DSH 换一张背景图片或视频。");
+  assert.equal(page.querySelector('[data-copy="image"]').textContent, "JPG / PNG / WebP / AVIF");
+
+  imageButton.click();
+  assert.equal(filePicker(document).clicks ?? 0, 0, "no browser picker before the policy is known");
+  assert.equal(
+    hits.some((path) => path.includes("/ui/pick")),
+    false,
+    "and /ui/pick is not used as a stand-in for the missing policy",
+  );
+  assert.match(page.querySelector(".bc-msg").textContent, /正在确认导入方式/);
+});
+
+test("console copy follows importPolicy once status lands", async () => {
+  const document = createConsoleDocument();
+  mountSettingsDialog(document);
+  await loadConsole(document, {
+    fetch: routedFetch({
+      "/__beauticode/ui/status": () =>
+        okJson(
+          statusBody({ importPolicy: { nativeLocalRequired: false, managedUploadAllowed: true } }),
+        ),
+    }),
+  });
+
+  navCell(document).click();
+  await flushAsync();
+
+  const page = pageEl(document);
+  assert.equal(page.querySelector('[data-act="image"]').disabled, false);
+  assert.match(page.querySelector(".bc-page-intro").textContent, /复制一份托管副本/);
+  assert.match(page.querySelector('[data-copy="image"]').textContent, /将复制一份托管文件/);
+  assert.match(page.querySelector('[data-copy="video"]').textContent, /将复制后播放/);
+});
+
+test("console copy describes local reference when the host picker is required", async () => {
+  const document = createConsoleDocument();
+  mountSettingsDialog(document);
+  await loadConsole(document, {
+    fetch: routedFetch({
+      "/__beauticode/ui/status": () =>
+        okJson(
+          statusBody({ importPolicy: { nativeLocalRequired: true, managedUploadAllowed: false } }),
+        ),
+    }),
+  });
+
+  navCell(document).click();
+  await flushAsync();
+
+  const page = pageEl(document);
+  assert.match(page.querySelector(".bc-page-intro").textContent, /只做引用/);
+  assert.match(page.querySelector('[data-copy="image"]').textContent, /直接引用本地文件/);
+  assert.match(page.querySelector('[data-copy="video"]').textContent, /零复制播放/);
+});
+
 test("console disables its controls and reports progress while busy", async () => {
   const document = createConsoleDocument();
   mountSettingsDialog(document);
@@ -679,7 +750,10 @@ test("console disables its controls and reports progress while busy", async () =
   });
   await loadConsole(document, {
     fetch: routedFetch({
-      "/__beauticode/ui/status": () => okJson(statusBody()),
+      "/__beauticode/ui/status": () =>
+        okJson(
+          statusBody({ importPolicy: { nativeLocalRequired: false, managedUploadAllowed: true } }),
+        ),
       "/__beauticode/ui/clear": async () => {
         await gate;
         return okJson({ ok: true, message: "已清除" });

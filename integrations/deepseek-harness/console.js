@@ -90,18 +90,18 @@ div[role="dialog"][aria-modal="true"][data-bc-page="on"] nav button[aria-current
   page.hidden = true;
   page.innerHTML =
     '<h2 class="bc-page-title">背景</h2>' +
-    '<p class="bc-page-intro">给 DSH 换一张背景图片或视频。本地文件默认只做引用，不复制主媒体。</p>' +
+    '<p class="bc-page-intro">给 DSH 换一张背景图片或视频。</p>' +
     '<p class="bc-status">未就绪</p>' +
     '<p class="bc-msg" role="status" aria-live="polite" hidden></p>' +
     '<div class="bc-group">' +
     '<div class="bc-row"><div class="bc-row-text">' +
     '<span class="bc-row-title">导入图片</span>' +
-    '<span class="bc-row-desc">JPG / PNG / WebP / AVIF，直接引用本地文件</span>' +
+    '<span class="bc-row-desc" data-copy="image">JPG / PNG / WebP / AVIF</span>' +
     "</div>" +
     '<div class="bc-control"><button type="button" class="bc-btn bc-pill" data-act="image">选择图片</button></div></div>' +
     '<div class="bc-row"><div class="bc-row-text">' +
     '<span class="bc-row-title">导入视频</span>' +
-    '<span class="bc-row-desc">MP4，零复制播放</span>' +
+    '<span class="bc-row-desc" data-copy="video">MP4</span>' +
     "</div>" +
     '<div class="bc-control"><button type="button" class="bc-btn bc-pill" data-act="video">选择视频</button></div></div>' +
     "</div>" +
@@ -162,6 +162,11 @@ div[role="dialog"][aria-modal="true"][data-bc-page="on"] nav button[aria-current
   const themeToggle = page.querySelector(".bc-theme-toggle");
   const themeList = page.querySelector(".bc-theme-list");
   const msgEl = page.querySelector(".bc-msg");
+  const introEl = page.querySelector(".bc-page-intro");
+  const imageDescEl = page.querySelector('[data-copy="image"]');
+  const videoDescEl = page.querySelector('[data-copy="video"]');
+  const imageBtn = page.querySelector('[data-act="image"]');
+  const videoBtn = page.querySelector('[data-act="video"]');
   const AUTO_DIM_PERCENT = 42;
   let busy = false;
   let muted = true;
@@ -170,7 +175,10 @@ div[role="dialog"][aria-modal="true"][data-bc-page="on"] nav button[aria-current
   // /ui/status reports whether the host lets the browser upload a managed copy.
   // It is true on every non-Windows platform, where /ui/pick can only answer
   // native_picker_unavailable. Cached here so the import buttons can decide
-  // synchronously, inside the user gesture.
+  // synchronously, inside the user gesture. Stay unset until that payload
+  // arrives: treating the default as "Windows" would send the first macOS /
+  // Linux click through /ui/pick and lose the gesture again.
+  let importPolicyReady = false;
   let managedUploadAllowed = false;
   let dialogEl = null;
   let pageActive = false;
@@ -320,12 +328,42 @@ div[role="dialog"][aria-modal="true"][data-bc-page="on"] nav button[aria-current
     msgEl.textContent = text;
   }
 
+  function renderImportCopy() {
+    if (!importPolicyReady) {
+      introEl.textContent = "给 DSH 换一张背景图片或视频。";
+      imageDescEl.textContent = "JPG / PNG / WebP / AVIF";
+      videoDescEl.textContent = "MP4";
+      return;
+    }
+    if (managedUploadAllowed) {
+      introEl.textContent = "给 DSH 换一张背景图片或视频。所选文件会复制一份托管副本。";
+      imageDescEl.textContent = "JPG / PNG / WebP / AVIF，将复制一份托管文件";
+      videoDescEl.textContent = "MP4，将复制后播放";
+      return;
+    }
+    introEl.textContent = "给 DSH 换一张背景图片或视频。本地文件只做引用，不复制主媒体。";
+    imageDescEl.textContent = "JPG / PNG / WebP / AVIF，直接引用本地文件";
+    videoDescEl.textContent = "MP4，零复制播放";
+  }
+
+  function syncImportControls() {
+    const locked = busy || !importPolicyReady;
+    imageBtn.disabled = locked;
+    videoBtn.disabled = locked;
+  }
+
   function renderStatus(data) {
     if (!data?.ok) {
       statusEl.textContent = data?.error || "未就绪";
+      syncImportControls();
       return;
     }
-    managedUploadAllowed = data?.importPolicy?.managedUploadAllowed === true;
+    if (typeof data?.importPolicy?.managedUploadAllowed === "boolean") {
+      importPolicyReady = true;
+      managedUploadAllowed = data.importPolicy.managedUploadAllowed === true;
+    }
+    renderImportCopy();
+    syncImportControls();
     const label =
       data.atmosphere === "gallery"
         ? "画窗"
@@ -468,6 +506,7 @@ div[role="dialog"][aria-modal="true"][data-bc-page="on"] nav button[aria-current
       busy = false;
       delete page.dataset.busy;
       for (const button of page.querySelectorAll(".bc-btn, .bc-theme-toggle, .bc-theme-item, .bc-theme-del")) button.disabled = false;
+      syncImportControls();
     }
     if (afterRun) queueMicrotask(afterRun);
   }
@@ -644,6 +683,10 @@ div[role="dialog"][aria-modal="true"][data-bc-page="on"] nav button[aria-current
   // upload, open the picker right here rather than asking /ui/pick first: that
   // round trip pushed the click past the gesture, so the picker never appeared.
   function startImport(kind) {
+    if (!importPolicyReady) {
+      showMessage("正在确认导入方式，请稍候再试。");
+      return;
+    }
     if (!managedUploadAllowed) {
       void run(() => pickAndImport(kind));
       return;
@@ -652,12 +695,14 @@ div[role="dialog"][aria-modal="true"][data-bc-page="on"] nav button[aria-current
     fileInput.dataset.compatibilityUpload = "true";
     fileInput.click();
   }
-  page.querySelector('[data-act="image"]').addEventListener("click", () => {
+  imageBtn.addEventListener("click", () => {
     startImport("image");
   });
-  page.querySelector('[data-act="video"]').addEventListener("click", () => {
+  videoBtn.addEventListener("click", () => {
     startImport("video");
   });
+  renderImportCopy();
+  syncImportControls();
   page.querySelector('[data-act="gallery"]').addEventListener("click", () => {
     // No setPageActive(false): the gallery is a fixed overlay above the dialog.
     if (window.BeauticodeGallery) {
