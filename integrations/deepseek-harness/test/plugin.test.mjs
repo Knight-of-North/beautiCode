@@ -294,6 +294,88 @@ test("browser client follows DSH appearance and does not overwrite it", async ()
   assert.equal(body.hasAttribute("data-ds-dark-theme"), false);
 });
 
+test("composer input surfaces inherit the sidebar translucency", async () => {
+  const source = await fs.readFile(new URL("../client.js", import.meta.url), "utf8");
+  const style = source.slice(
+    source.indexOf("style.textContent = `"),
+    source.indexOf("#beauticode-bg-stage{"),
+  );
+  assert.match(
+    style,
+    /--dsw-specific-sidebar-fill:color-mix\(in srgb,var\(--dsw-static-neutral-bluish-900\) var\(--bc-surface-mix\),transparent\)/,
+    "the sidebar fill is the surface palette color at the surface tier",
+  );
+  assert.match(
+    style,
+    /--dsw-specific-input-major:var\(--dsw-specific-sidebar-fill\)/,
+    "the composer card aliases the sidebar fill instead of shipping a second color",
+  );
+  assert.doesNotMatch(
+    style,
+    /--dsw-specific-input-major:rgba\(/,
+    "the input surface must not hardcode its own translucent color",
+  );
+});
+
+test("opaque DSH surfaces are re-expressed on the translucency tiers", async () => {
+  const source = await fs.readFile(new URL("../client.js", import.meta.url), "utf8");
+  const style = source.slice(
+    source.indexOf("style.textContent = `"),
+    source.indexOf("#beauticode-bg-stage{"),
+  );
+  const declared = new Map();
+  for (const match of style.matchAll(/(--dsw-[a-z0-9-]+):([^;}]+)/g)) {
+    if (!declared.has(match[1])) declared.set(match[1], match[2].trim());
+  }
+  const content = [
+    "--dsw-specific-bubble",
+    "--dsw-specific-bubble-highlight",
+    "--dsw-alias-state-warn-tertiary",
+    "--dsw-alias-state-success-tertiary",
+    "--dsw-alias-state-business-tertiary",
+    "--dsw-alias-markdown-code-block",
+    "--dsw-alias-markdown-code-block-banner",
+    "--dsw-alias-markdown-inline-code",
+    "--dsw-alias-markdown-tag",
+    "--dsw-alias-markdown-citation",
+    "--dsw-alias-markdown-placeholder",
+    "--dsw-alias-markdown-code-segment-selected",
+    "--dsw-alias-markdown-code-segment-unselected",
+  ];
+  const chrome = [
+    "--dsw-alias-bg-layer-3",
+    "--dsw-specific-tip",
+    "--dsw-alias-bg-module-platform",
+    "--dsw-specific-selector",
+    "--dsw-alias-interactive-bg-hover-solid",
+    "--dsw-alias-tooltip-bg",
+    "--dsw-alias-toast-bg",
+    "--dsw-alias-button-floating-fill",
+  ];
+  const tiered =
+    /^color-mix\(in srgb,var\(--dsw-static-[a-z0-9-]+\) var\(--bc-(surface|content)-mix\),transparent\)$/;
+  for (const token of [...content, ...chrome]) {
+    assert.match(
+      declared.get(token) ?? "",
+      tiered,
+      `${token} is a palette color at an alpha tier, not an opaque literal`,
+    );
+  }
+  for (const token of content) {
+    assert.match(declared.get(token), /var\(--bc-content-mix\)/, `${token} follows the content tier`);
+  }
+  for (const token of chrome) {
+    assert.match(declared.get(token), /var\(--bc-surface-mix\)/, `${token} follows the surface tier`);
+  }
+  // The deliverables cards read a module-local fill pair instead of an alias
+  // token, so they have to be re-pointed on the card element itself.
+  assert.match(
+    style,
+    /\[data-presented-file\]\{[^}]*--deliverable-fill:color-mix\(in srgb,var\(--dsw-static-neutral-850\) var\(--bc-content-mix\),transparent\)/,
+    "the cards listed under 本轮文件改动 are translucent too",
+  );
+});
+
 test("browser client restores user dim from localStorage and can clear it", async () => {
   const source = await fs.readFile(new URL("../client.js", import.meta.url), "utf8");
   const store = new Map();

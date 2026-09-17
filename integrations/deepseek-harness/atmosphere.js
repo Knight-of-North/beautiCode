@@ -82,14 +82,14 @@ html[data-bc-gallery="true"] body{
   --dsw-alias-bg-layer-1:rgba(26,30,39,.28);
   --dsw-alias-bg-layer-2:rgba(35,40,51,.32);
   --dsw-alias-bg-overlay:rgba(17,20,27,.12);
-  --dsw-specific-sidebar-fill:rgba(23,27,35,.28);
+  --dsw-specific-sidebar-fill:rgba(23,27,35,.36);
 }
 html[data-bc-resolved-tone="light"][data-bc-gallery="true"] body{
   --dsw-alias-bg-base:rgba(248,250,252,.12);
   --dsw-alias-bg-layer-1:rgba(255,255,255,.28);
   --dsw-alias-bg-layer-2:rgba(248,250,252,.32);
   --dsw-alias-bg-overlay:rgba(255,255,255,.14);
-  --dsw-specific-sidebar-fill:rgba(255,255,255,.28);
+  --dsw-specific-sidebar-fill:rgba(255,255,255,.36);
 }
 html[data-bc-gallery="true"] #root{position:relative;z-index:1;background:transparent!important}
 html[data-bc-gallery="true"] [class*="_fade"]{display:none!important}
