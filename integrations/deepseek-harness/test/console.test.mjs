@@ -391,6 +391,7 @@ async function loadConsole(document, { fetch: fetchImpl } = {}) {
   vm.runInNewContext(source, context);
   return {
     source,
+    context,
     /** The interval is the drift net console.js keeps for DOM churn. */
     tick() {
       for (const fn of ticks) fn();
@@ -527,17 +528,66 @@ test("console page includes a dim slider and restore-default control", async () 
   const page = pageEl(document);
   assert.match(page.innerHTML, /class="bc-dim-slider"/);
   assert.match(page.innerHTML, /type="range"/);
-  assert.match(page.innerHTML, /恢复默认/);
   assert.match(page.innerHTML, /data-act="dim-reset"/);
   assert.ok(page.querySelector(".bc-dim-slider"));
-  assert.ok(page.querySelector('[data-act="dim-reset"]'));
-  assert.equal(page.querySelector(".bc-dim-value")?.textContent, "自动");
-  assert.equal(page.querySelector('[data-act="dim-reset"]').hidden, true);
+  const reset = page.querySelector('[data-act="dim-reset"]');
+  assert.ok(reset);
+  // An arrow, not a word: the control is an icon button with a label for
+  // assistive tech, and it is always there rather than appearing only once a
+  // value has been stored.
+  assert.equal(reset.getAttribute("aria-label"), "恢复默认");
+  assert.equal(reset.getAttribute("hidden"), null);
+  assert.equal(reset.textContent.trim(), "");
+  const control = /<button type="button" class="bc-dim-reset"[^>]*>([\s\S]*?)<\/button>/.exec(
+    page.innerHTML,
+  );
+  assert.ok(control, "the reset control is in the page markup");
+  assert.match(control[1], /<svg/, "the control is an icon");
+  assert.doesNotMatch(control[1], /[\u4e00-\u9fff]/, "and it carries no words");
+  assert.match(control[0], /aria-label="恢复默认"/, "but it is labelled for assistive tech");
+  assert.equal(page.querySelector(".bc-dim-value")?.textContent, "0%");
   assert.equal(
     page.querySelector(".bc-dim-slider")?.value,
     "0",
     "the background shadow ships at zero until someone moves the slider",
   );
+});
+
+/**
+ * 恢复默认 is a plain write of the default value. It used to clear the stored
+ * value and leave the row in a separate "auto" state the slider could not show,
+ * which is exactly how the row could report one number while the veil used
+ * another.
+ */
+test("the reset arrow writes the default value instead of an auto state", async () => {
+  const document = createConsoleDocument();
+  mountSettingsDialog(document);
+  const calls = [];
+  const { context } = await loadConsole(document);
+  let stored = 0.25;
+  context.BeauticodeBackgroundDim = {
+    get: () => stored,
+    set: (value) => {
+      calls.push(["set", value]);
+      stored = value;
+      return value;
+    },
+    clear: () => {
+      calls.push(["clear"]);
+      stored = null;
+      return null;
+    },
+  };
+
+  navCell(document).click();
+  const page = pageEl(document);
+  assert.equal(page.querySelector(".bc-dim-value")?.textContent, "25%");
+  assert.equal(page.querySelector(".bc-dim-slider")?.value, "25");
+
+  page.querySelector('[data-act="dim-reset"]').click();
+  assert.deepEqual(calls, [["set", 0]], "reset writes 0% through and never clears");
+  assert.equal(page.querySelector(".bc-dim-value")?.textContent, "0%");
+  assert.equal(page.querySelector(".bc-dim-slider")?.value, "0");
 });
 
 /**
