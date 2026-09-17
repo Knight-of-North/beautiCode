@@ -24,7 +24,7 @@
 
 beautiCode 是一个本地背景工具，**主要面向 DeepSeek Harness和Codex**。
 
-它不包含、不安装、也不启动 DSH。请先自行安装 DeepSeek Harness 并运行 `dsh web`。插件装好后，DSH 侧栏「设置」上方会出现「背景」，不必再开托盘。Codex Desktop 仍走 beautiCode 托盘。可以把电脑里的：
+它不包含、不安装、也不启动 DSH。请先自行安装 DeepSeek Harness 并运行 `dsh web`。插件装好后，打开 DSH 的「设置」，左侧导航里会多出一项「背景」，不必再开托盘。Codex Desktop 仍走 beautiCode 托盘。可以把电脑里的：
 
 * 图片
 * 动态壁纸
@@ -52,7 +52,7 @@ npx beauticode-dsh
 
 `npx beauticode-dsh` 会从 npm 下载插件并写入你的 DSH profile，**不需要 pnpm，也不需要再执行 `dsh plugin add`**。已把 `dsh` 装到 PATH 时，第二行也可以写成 `dsh web`。
 
-打开网页后，侧栏「设置」上方有「背景」：可从文件夹选图片或 MP4、清除、开关声音、切换已保存主题。已保存主题里自带「画窗」。网页控制台没有摸鱼。外观浅色/深色仍用 DSH 自己的设置。下次启动会恢复上次背景。
+打开网页后，点开「设置」，左侧导航里的「背景」即可：可从文件夹选图片或 MP4、清除、开关声音、切换已保存主题，也可以进入全屏，把浏览器的标签页和地址栏收起来。已保存主题里自带「画窗」。网页控制台没有摸鱼。外观浅色/深色仍用 DSH 自己的设置。下次启动会恢复上次背景。
 
 也可以用 `/bg`、`/bg-theme`、`/bg-clear`，或直接跟 AI 说把本机图片/视频设成背景。
 
@@ -84,7 +84,7 @@ npx @deepseek-ai/dsh web
 
 安装包自带 Node.js，不需要另外安装 Node.js、npm 或 pnpm。安装结束时会自动写入 DSH 插件。若你改过安装目录，以安装文件夹里的 `集成说明.txt` 为准。
 
-自己启动 `dsh web` 后，侧栏「背景」即可使用。Codex Desktop 仍要开 beautiCode 托盘：选 **Codex Desktop** 会按需拉起 Codex；选 **DeepSeek Harness** 只连接你已经启动的 DSH 网页，不会替你启动 DSH。
+自己启动 `dsh web` 后，「设置」里的「背景」即可使用。Codex Desktop 仍要开 beautiCode 托盘：选 **Codex Desktop** 会按需拉起 Codex；选 **DeepSeek Harness** 只连接你已经启动的 DSH 网页，不会替你启动 DSH。
 
 若自动写入失败，把路径换成实际安装目录（默认是 `%LOCALAPPDATA%\Programs\beautiCode`）：
 

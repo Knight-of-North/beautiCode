@@ -9,50 +9,51 @@
   const style = document.createElement("style");
   style.dataset.beauticodeConsole = "true";
   style.textContent = `
-#beauticode-console{display:contents}
-#beauticode-console .bc-trigger{cursor:pointer;width:calc(100% + 8px);height:34px;margin:4px -4px;padding:6px 2px 6px 10px;border:none;border-radius:12px;background:transparent;color:inherit;font:inherit;font-size:14px;line-height:22px;align-items:center;gap:8px;display:flex;overflow:hidden}
-#beauticode-console .bc-trigger:hover{background:var(--dsw-alias-interactive-bg-hover)}
-#beauticode-console.rail .bc-trigger{width:36px;height:36px;margin:8px 0 10px;padding:0;border-radius:50%;justify-content:center;gap:0}
-#beauticode-console.rail .bc-label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
-#beauticode-console .bc-icon{flex:none;display:block}
-#beauticode-console .bc-label{white-space:nowrap;overflow:hidden}
-#beauticode-console-pop{position:fixed;z-index:2000;box-sizing:border-box;width:264px;padding:4px;border:0;border-radius:20px;background:var(--dsw-specific-menu);--dsw-elevation-stroke-color:var(--dsw-alias-border-l1);box-shadow:var(--dsw-elevation-prominent);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;overflow:hidden}
-#beauticode-console-pop *{box-sizing:border-box;font-family:inherit}
-#beauticode-console-pop .bc-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 8px 3px}
-#beauticode-console-pop .bc-title{margin:0;color:var(--dsw-alias-label-tertiary);font-size:12px;font-weight:500;line-height:18px;letter-spacing:.06em}
-#beauticode-console-pop .bc-status{min-width:0;max-width:152px;color:var(--dsw-alias-label-caption);font-size:12px;line-height:18px;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#beauticode-console-pop .bc-row{cursor:pointer;display:flex;align-items:center;gap:8px;width:100%;min-height:38px;padding:6px 8px;border:0;border-radius:10px;outline:none;background:0 0;color:var(--dsw-alias-label-primary);font:inherit;font-size:14px;line-height:22px;text-align:left}
-#beauticode-console-pop .bc-row:hover:not(:disabled),#beauticode-console-pop .bc-row:focus-visible{background:var(--dsw-alias-interactive-bg-hover)}
-#beauticode-console-pop .bc-row-icon{flex:none;display:block;color:var(--dsw-alias-label-secondary)}
-#beauticode-console-pop .bc-row-copy{min-width:0;flex:1}
-#beauticode-console-pop .bc-row strong{display:block;font-weight:400}
-#beauticode-console-pop .bc-row small{display:block;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}
-#beauticode-console-pop .bc-sep{height:0;margin:4px 0;border-top:.5px solid var(--dsw-alias-border-l2)}
-#beauticode-console-pop .bc-dim{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:4px;padding:8px;border-top:.5px solid var(--dsw-alias-border-l2)}
-#beauticode-console-pop .bc-dim-label{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}
-#beauticode-console-pop .bc-dim-slider{-webkit-appearance:none;appearance:none;flex:1;min-width:72px;height:4px;margin:0;padding:0;border-radius:999px;background:var(--dsw-alias-border-l3);cursor:pointer}
-#beauticode-console-pop .bc-dim-slider::-webkit-slider-runnable-track{height:4px;border-radius:999px;background:var(--dsw-alias-border-l3)}
-#beauticode-console-pop .bc-dim-slider::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;margin-top:-5px;border:.5px solid var(--dsw-alias-border-l4);border-radius:50%;background:var(--dsw-alias-bg-layer-1);box-shadow:var(--dsw-shadow-lv1);cursor:pointer}
-#beauticode-console-pop .bc-dim-value{min-width:2.6em;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;font-variant-numeric:tabular-nums;text-align:right}
-#beauticode-console-pop .bc-link{cursor:pointer;height:auto;padding:0;border:0;border-radius:6px;background:0 0;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:18px;text-decoration:underline;text-underline-offset:3px}
-#beauticode-console-pop .bc-link:hover{color:var(--dsw-alias-label-primary)}
-#beauticode-console-pop .bc-themes{margin-top:4px;border-top:.5px solid var(--dsw-alias-border-l2)}
-#beauticode-console-pop .bc-theme-toggle{cursor:pointer;display:flex;align-items:center;justify-content:space-between;width:100%;height:auto;padding:5px 8px 3px;border:0;background:0 0;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:12px;font-weight:500;line-height:18px;letter-spacing:.06em;text-align:left}
-#beauticode-console-pop .bc-theme-list{max-height:150px;overflow:auto;scrollbar-width:thin}
-#beauticode-console-pop .bc-theme-row{display:flex;align-items:center;min-width:0}
-#beauticode-console-pop .bc-theme-item{cursor:pointer;display:flex;align-items:center;gap:8px;flex:1;min-width:0;min-height:32px;padding:4px 8px;border:0;border-radius:10px;background:0 0;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;line-height:20px;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#beauticode-console-pop .bc-theme-item::before{content:"";flex:none;width:14px;font-size:9px;color:var(--dsw-alias-state-business-primary)}
-#beauticode-console-pop .bc-theme-item[aria-current="true"]{font-weight:500}
-#beauticode-console-pop .bc-theme-item[aria-current="true"]::before{content:"●"}
-#beauticode-console-pop .bc-theme-item:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}
-#beauticode-console-pop .bc-source{flex:none;margin-left:auto;padding:0 4px;border-radius:6px;background:var(--dsw-specific-sidebar-nav-item-active-accent);color:var(--dsw-alias-button-info-fill);font-size:11px;font-weight:600;line-height:18px}
-#beauticode-console-pop .bc-theme-del{cursor:pointer;flex:none;width:24px;height:28px;padding:0;border:0;border-radius:8px;background:0 0;color:var(--dsw-alias-label-tertiary);font-size:15px;line-height:28px}
-#beauticode-console-pop .bc-theme-del:hover{color:var(--dsw-alias-state-error-primary);background:var(--dsw-alias-interactive-bg-hover-danger)}
-#beauticode-console-pop .bc-btn:disabled,#beauticode-console-pop .bc-theme-toggle:disabled,#beauticode-console-pop .bc-theme-item:disabled,#beauticode-console-pop .bc-theme-del:disabled{opacity:.38;cursor:default}
-#beauticode-console-pop[data-busy="true"] .bc-title::before{content:"";display:inline-block;width:6px;height:6px;margin-right:6px;border-radius:50%;background:var(--dsw-alias-state-business-primary);animation:bc-pulse .9s steps(2,end) infinite}
-#beauticode-console-pop .bc-msg{margin:4px 0 0;padding:0 8px 6px;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;max-height:3.6em;overflow:hidden}
+#beauticode-console-page{display:flex;flex-direction:column;gap:12px;max-width:720px;color:var(--dsw-alias-label-primary)}
+#beauticode-console-page[hidden],#beauticode-console-page [hidden]{display:none !important}
+#beauticode-console-page *{box-sizing:border-box;font-family:inherit}
+#beauticode-console-page .bc-page-title{margin:0;font-size:18px;font-weight:600;line-height:26px}
+#beauticode-console-page .bc-page-intro{margin:0;color:var(--dsw-alias-label-tertiary);font-size:13px;line-height:20px}
+#beauticode-console-page .bc-status{margin:0;color:var(--dsw-alias-label-caption);font-size:12px;line-height:18px}
+#beauticode-console-page .bc-group{display:flex;flex-direction:column}
+#beauticode-console-page .bc-row{display:flex;align-items:center;gap:8px;padding:16px 0;border-bottom:.5px solid var(--dsw-alias-border-l2)}
+#beauticode-console-page .bc-row-text{display:flex;flex-direction:column;flex:1;gap:4px;min-width:0;padding-right:48px}
+#beauticode-console-page .bc-row-title{color:var(--dsw-alias-label-primary);font-size:14px;font-weight:400;line-height:22px}
+#beauticode-console-page .bc-row-desc{color:var(--dsw-alias-label-tertiary);font-size:12px;font-weight:400;line-height:18px}
+#beauticode-console-page .bc-control{display:inline-flex;flex:none;align-items:center;gap:8px}
+#beauticode-console-page .bc-pill{cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-width:72px;height:36px;padding:0 14px;border:0;border-radius:18px;background:var(--dsw-alias-bg-module-platform);color:var(--dsw-alias-label-primary);font:inherit;font-size:14px;font-weight:400;line-height:22px}
+#beauticode-console-page .bc-pill:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}
+#beauticode-console-page .bc-pill.on::before{content:"";flex:none;width:6px;height:6px;border-radius:50%;background:var(--dsw-alias-state-business-primary)}
+#beauticode-console-page .bc-link{cursor:pointer;height:auto;padding:0;border:0;border-radius:6px;background:0 0;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:18px;text-decoration:underline;text-underline-offset:3px}
+#beauticode-console-page .bc-link:hover{color:var(--dsw-alias-label-primary)}
+#beauticode-console-page .bc-slider{display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 14px;border-radius:18px;background:var(--dsw-alias-bg-module-platform)}
+#beauticode-console-page .bc-dim-slider{-webkit-appearance:none;appearance:none;width:120px;height:4px;margin:0;padding:0;border-radius:999px;background:var(--dsw-alias-border-l3);cursor:pointer}
+#beauticode-console-page .bc-dim-slider::-webkit-slider-runnable-track{height:4px;border-radius:999px;background:var(--dsw-alias-border-l3)}
+#beauticode-console-page .bc-dim-slider::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;margin-top:-5px;border:.5px solid var(--dsw-alias-border-l4);border-radius:50%;background:var(--dsw-alias-bg-layer-1);box-shadow:var(--dsw-shadow-lv1);cursor:pointer}
+#beauticode-console-page .bc-dim-value{min-width:2.6em;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;font-variant-numeric:tabular-nums;text-align:right}
+#beauticode-console-page .bc-theme-toggle{cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;height:auto;padding:12px 0;border:0;background:0 0;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:12px;font-weight:600;line-height:18px;letter-spacing:.06em;text-align:left}
+#beauticode-console-page .bc-theme-list{display:flex;flex-direction:column;max-height:280px;overflow:auto;scrollbar-width:thin}
+#beauticode-console-page .bc-theme-row{display:flex;align-items:center;gap:8px;padding:12px 0;border-bottom:.5px solid var(--dsw-alias-border-l2)}
+#beauticode-console-page .bc-theme-row:last-child{border-bottom:none}
+#beauticode-console-page .bc-theme-item{cursor:pointer;display:flex;align-items:center;gap:8px;flex:1;min-width:0;height:36px;padding:0 12px;border:0;border-radius:12px;background:0 0;color:var(--dsw-alias-label-primary);font:inherit;font-size:14px;line-height:22px;text-align:left}
+#beauticode-console-page .bc-theme-item:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}
+#beauticode-console-page .bc-theme-item[aria-current="true"]{background:var(--dsw-specific-sidebar-nav-item-active)}
+#beauticode-console-page .bc-theme-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#beauticode-console-page .bc-source{flex:none;padding:0 6px;border-radius:6px;background:var(--dsw-specific-sidebar-nav-item-active-accent);color:var(--dsw-alias-button-info-fill);font-size:11px;font-weight:600;line-height:18px}
+#beauticode-console-page .bc-theme-del{cursor:pointer;flex:none;width:24px;height:24px;padding:0;border:0;border-radius:8px;background:0 0;color:var(--dsw-alias-label-tertiary);font-size:15px;line-height:24px}
+#beauticode-console-page .bc-theme-del:hover{color:var(--dsw-alias-state-error-primary);background:var(--dsw-alias-interactive-bg-hover-danger)}
+#beauticode-console-page .bc-btn:disabled,#beauticode-console-page .bc-theme-toggle:disabled,#beauticode-console-page .bc-theme-item:disabled,#beauticode-console-page .bc-theme-del:disabled{opacity:.38;cursor:default}
+#beauticode-console-page .bc-msg{margin:0;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;overflow-wrap:anywhere}
+#beauticode-console-page[data-busy="true"] .bc-page-title::before{content:"";display:inline-block;width:6px;height:6px;margin-right:6px;border-radius:50%;background:var(--dsw-alias-state-business-primary);animation:bc-pulse .9s steps(2,end) infinite}
 @keyframes bc-pulse{50%{opacity:.25}}
-#beauticode-console-file{display:none !important}
+#beauticode-console-file{position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:0;pointer-events:none}
+div[role="dialog"][aria-modal="true"] nav button[data-bc-nav="console"]{box-sizing:border-box;cursor:pointer;display:flex;align-items:center;gap:8px;width:100%;height:40px;padding:9px 16px 9px 12px;border:0;border-radius:12px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:14px;font-weight:400;line-height:22px;text-align:left}
+div[role="dialog"][aria-modal="true"] nav button[data-bc-nav="console"] svg{flex:none;display:block}
+div[role="dialog"][aria-modal="true"] nav button[data-bc-nav="console"]:hover{background:var(--dsw-specific-sidebar-nav-item-hover,var(--dsw-alias-interactive-bg-hover))}
+div[role="dialog"][aria-modal="true"] nav button[data-bc-nav="console"][aria-current="true"]{background:var(--dsw-specific-sidebar-nav-item-active,var(--dsw-alias-interactive-bg-hover))}
+div[role="dialog"][aria-modal="true"][data-bc-page="on"] div[data-slot="settings.section"]{display:none !important}
+div[role="dialog"][aria-modal="true"][data-bc-page="on"] nav button[aria-current="true"]:not([data-bc-nav]){background:transparent}
+div[role="dialog"][aria-modal="true"][data-bc-page="on"] nav button[aria-current="true"]:not([data-bc-nav]):hover{background:var(--dsw-specific-sidebar-nav-item-hover,var(--dsw-alias-interactive-bg-hover))}
 #beauticode-name-dialog{position:fixed;inset:0;z-index:3000;display:grid;place-items:center;padding:24px;background:var(--dsw-alias-bg-mask-1);font:inherit}
 #beauticode-name-dialog .bc-name-card{display:flex;flex-direction:column;gap:10px;width:min(380px,calc(100vw - 48px));padding:20px;border:0;border-radius:20px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);box-shadow:var(--dsw-elevation-prominent)}
 #beauticode-name-dialog .bc-name-title{margin:0;font-size:16px;font-weight:600;line-height:24px}
@@ -68,70 +69,119 @@
 `;
   document.head.append(style);
 
-  const host = document.createElement("div");
-  host.id = "beauticode-console";
-  host.innerHTML =
-    '<button type="button" class="bc-trigger" aria-expanded="false" aria-controls="beauticode-console-pop">' +
-    '<svg class="bc-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">' +
+  // The settings dialog is React-rendered and owns its own active section, so we
+  // cannot register a real settings page: beauticode-dsh ships no dsh.client
+  // entry, and even with one the nav would still be React state. Instead we add
+  // our own nav cell and our own section, then take over the visible area while
+  // our cell is selected. See setPageActive() for the handoff.
+  const navButton = document.createElement("button");
+  navButton.type = "button";
+  navButton.setAttribute("data-bc-nav", "console");
+  navButton.innerHTML =
+    '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">' +
     '<rect x="1.75" y="3.25" width="12.5" height="9.5" rx="2" stroke="currentColor" stroke-width="1.25"/>' +
     '<path d="M2.5 11.25 5.6 8.2a1 1 0 0 1 1.35 0L9.2 10.4l1.05-.95a1 1 0 0 1 1.3.04L13.5 11.3" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>' +
     '<circle cx="5.25" cy="6.25" r="1" fill="currentColor"/>' +
     "</svg>" +
-    '<span class="bc-label">背景</span></button>';
+    "<span>背景</span>";
 
-  const pop = document.createElement("div");
-  pop.id = "beauticode-console-pop";
-  pop.hidden = true;
-  pop.innerHTML =
-    '<header class="bc-head"><h2 class="bc-title">背景清单</h2><span class="bc-status">未就绪</span></header>' +
-    '<button type="button" class="bc-btn bc-row" data-act="image">' +
-    '<svg class="bc-row-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">' +
-    '<rect x="1.75" y="3.25" width="12.5" height="9.5" rx="2" stroke="currentColor" stroke-width="1.25"/>' +
-    '<path d="M2.5 11.25 5.6 8.2a1 1 0 0 1 1.35 0L9.2 10.4l1.05-.95a1 1 0 0 1 1.3.04L13.5 11.3" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>' +
-    '<circle cx="5.25" cy="6.25" r="1" fill="currentColor"/></svg>' +
-    '<span class="bc-row-copy"><strong>导入图片</strong><small>直接引用本地文件</small></span></button>' +
-    '<button type="button" class="bc-btn bc-row" data-act="video">' +
-    '<svg class="bc-row-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">' +
-    '<rect x="1.75" y="3.25" width="12.5" height="9.5" rx="2" stroke="currentColor" stroke-width="1.25"/>' +
-    '<path d="M6.6 6.3v3.4l3-1.7z" fill="currentColor"/></svg>' +
-    '<span class="bc-row-copy"><strong>导入视频</strong><small>MP4 · 零复制播放</small></span></button>' +
-    '<div class="bc-sep"></div>' +
-    '<button type="button" class="bc-btn bc-row" data-act="sound">声音已关</button>' +
-    '<button type="button" class="bc-btn bc-row" data-act="clear">清除背景</button>' +
-    '<button type="button" class="bc-btn bc-row" data-act="gallery">打开皮肤中心</button>' +
-    '<div class="bc-dim">' +
-    '<span class="bc-dim-label">阴影</span>' +
+  const page = document.createElement("div");
+  page.id = "beauticode-console-page";
+  page.hidden = true;
+  page.innerHTML =
+    '<h2 class="bc-page-title">背景</h2>' +
+    '<p class="bc-page-intro">给 DSH 换一张背景图片或视频。</p>' +
+    '<p class="bc-status">未就绪</p>' +
+    '<p class="bc-msg" role="status" aria-live="polite" hidden></p>' +
+    '<div class="bc-group">' +
+    '<div class="bc-row"><div class="bc-row-text">' +
+    '<span class="bc-row-title">导入图片</span>' +
+    '<span class="bc-row-desc" data-copy="image">JPG / PNG / WebP / AVIF</span>' +
+    "</div>" +
+    '<div class="bc-control"><button type="button" class="bc-btn bc-pill" data-act="image">选择图片</button></div></div>' +
+    '<div class="bc-row"><div class="bc-row-text">' +
+    '<span class="bc-row-title">导入视频</span>' +
+    '<span class="bc-row-desc" data-copy="video">MP4</span>' +
+    "</div>" +
+    '<div class="bc-control"><button type="button" class="bc-btn bc-pill" data-act="video">选择视频</button></div></div>' +
+    "</div>" +
+    '<div class="bc-group">' +
+    '<div class="bc-row" data-row="fullscreen"><div class="bc-row-text">' +
+    '<span class="bc-row-title">全屏显示</span>' +
+    '<span class="bc-row-desc">隐藏浏览器标签页与地址栏；按 Esc 退出</span>' +
+    "</div>" +
+    '<div class="bc-control"><button type="button" class="bc-btn bc-pill" data-act="fullscreen" aria-pressed="false">进入全屏</button></div></div>' +
+    '<div class="bc-row"><div class="bc-row-text">' +
+    '<span class="bc-row-title">背景阴影</span>' +
+    '<span class="bc-row-desc">压暗背景，让前景内容更清楚</span>' +
+    "</div>" +
+    '<div class="bc-control">' +
+    '<span class="bc-slider">' +
     '<input type="range" class="bc-dim-slider" min="0" max="100" step="1" value="42" aria-label="背景阴影"/>' +
     '<span class="bc-dim-value">自动</span>' +
+    "</span>" +
     '<button type="button" class="bc-btn bc-link" data-act="dim-reset" hidden>恢复默认</button>' +
+    "</div></div>" +
+    '<div class="bc-row"><div class="bc-row-text">' +
+    '<span class="bc-row-title">声音</span>' +
+    '<span class="bc-row-desc">视频背景播放时输出声音</span>' +
     "</div>" +
-    '<div class="bc-themes" hidden>' +
+    '<div class="bc-control"><button type="button" class="bc-btn bc-pill" data-act="sound" aria-pressed="false">已关</button></div></div>' +
+    "</div>" +
+    '<div class="bc-group bc-themes" hidden>' +
     '<button type="button" class="bc-theme-toggle" aria-expanded="true"><span>SAVED / 00</span><span>−</span></button>' +
     '<div class="bc-theme-list" hidden></div>' +
     "</div>" +
-    '<p class="bc-msg" hidden></p>';
+    '<div class="bc-group">' +
+    '<div class="bc-row"><div class="bc-row-text">' +
+    '<span class="bc-row-title">打开皮肤中心</span>' +
+    '<span class="bc-row-desc">浏览在线皮肤，一键安装并应用</span>' +
+    "</div>" +
+    '<div class="bc-control"><button type="button" class="bc-btn bc-pill" data-act="gallery">打开</button></div></div>' +
+    '<div class="bc-row"><div class="bc-row-text">' +
+    '<span class="bc-row-title">清除背景</span>' +
+    '<span class="bc-row-desc">移除当前背景，恢复默认外观</span>' +
+    "</div>" +
+    '<div class="bc-control"><button type="button" class="bc-btn bc-pill" data-act="clear">清除</button></div></div>' +
+    "</div>";
 
   const fileInput = document.createElement("input");
   fileInput.id = "beauticode-console-file";
   fileInput.type = "file";
 
-  document.body.append(pop, fileInput);
+  document.body.append(fileInput);
 
-  const trigger = host.querySelector(".bc-trigger");
-  const statusEl = pop.querySelector(".bc-status");
-  const soundBtn = pop.querySelector('[data-act="sound"]');
-  const dimSlider = pop.querySelector(".bc-dim-slider");
-  const dimValue = pop.querySelector(".bc-dim-value");
-  const dimReset = pop.querySelector('[data-act="dim-reset"]');
-  const themesBox = pop.querySelector(".bc-themes");
-  const themeToggle = pop.querySelector(".bc-theme-toggle");
-  const themeList = pop.querySelector(".bc-theme-list");
-  const msgEl = pop.querySelector(".bc-msg");
+  const statusEl = page.querySelector(".bc-status");
+  const soundBtn = page.querySelector('[data-act="sound"]');
+  const dimSlider = page.querySelector(".bc-dim-slider");
+  const dimValue = page.querySelector(".bc-dim-value");
+  const dimReset = page.querySelector('[data-act="dim-reset"]');
+  const fullscreenRow = page.querySelector('[data-row="fullscreen"]');
+  const fullscreenBtn = page.querySelector('[data-act="fullscreen"]');
+  const themesBox = page.querySelector(".bc-themes");
+  const themeToggle = page.querySelector(".bc-theme-toggle");
+  const themeList = page.querySelector(".bc-theme-list");
+  const msgEl = page.querySelector(".bc-msg");
+  const introEl = page.querySelector(".bc-page-intro");
+  const imageDescEl = page.querySelector('[data-copy="image"]');
+  const videoDescEl = page.querySelector('[data-copy="video"]');
+  const imageBtn = page.querySelector('[data-act="image"]');
+  const videoBtn = page.querySelector('[data-act="video"]');
   const AUTO_DIM_PERCENT = 42;
   let busy = false;
   let muted = true;
   let currentThemeId = "";
   let themesExpanded = true;
+  // /ui/status reports whether the host lets the browser upload a managed copy.
+  // It is true on every non-Windows platform, where /ui/pick can only answer
+  // native_picker_unavailable. Cached here so the import buttons can decide
+  // synchronously, inside the user gesture. Stay unset until that payload
+  // arrives: treating the default as "Windows" would send the first macOS /
+  // Linux click through /ui/pick and lose the gesture again.
+  let importPolicyReady = false;
+  let managedUploadAllowed = false;
+  let dialogEl = null;
+  let pageActive = false;
 
   function renderDim() {
     const current = globalThis.BeauticodeBackgroundDim?.get?.() ?? null;
@@ -147,65 +197,124 @@
     dimReset.hidden = false;
   }
 
-  function findSettingsTrigger() {
-    const buttons = [...document.querySelectorAll('button[aria-haspopup="dialog"]')];
-    const candidates = buttons.filter((button) => {
-      if (host.contains(button) || pop.contains(button)) return false;
-      const rect = button.getBoundingClientRect();
-      return rect.width > 0 && rect.height > 0 && rect.left < 320 && rect.bottom > window.innerHeight * 0.35;
-    });
-    candidates.sort((a, b) => b.getBoundingClientRect().bottom - a.getBoundingClientRect().bottom);
-    return candidates[0] || null;
-  }
-
-  function placePop() {
-    const rect = trigger.getBoundingClientRect();
-    if (!rect.width) return;
-    pop.style.left = `${Math.round(rect.left)}px`;
-    pop.style.bottom = `${Math.round(window.innerHeight - rect.top + 8)}px`;
-  }
-
-  function isContents(node) {
-    if (!node) return false;
-    if (node.style?.display === "contents") return true;
-    if (typeof getComputedStyle === "function") {
-      try {
-        return getComputedStyle(node).display === "contents";
-      } catch {
-        return false;
-      }
+  function isOurs(node) {
+    for (let el = node; el; el = el.parentElement ?? null) {
+      if (String(el.id || "").startsWith("beauticode-")) return true;
     }
     return false;
   }
 
-  function layoutParent(node) {
-    let current = node?.parentElement ?? null;
-    while (current && isContents(current)) current = current.parentElement;
-    return current;
+  // React renders the settings dialog only while it is open, and its class names
+  // are build-generated hashes. Identify it structurally instead. Fail closed:
+  // if any part of the signature is missing we inject nothing rather than guess
+  // a container and land in the wrong place.
+  function findSettingsDialog() {
+    for (const el of document.querySelectorAll('[aria-modal="true"]')) {
+      if (el.getAttribute("role") !== "dialog") continue;
+      if (isOurs(el)) continue;
+      if (!el.querySelector("nav")) continue;
+      const anchors = el.querySelectorAll('[data-slot="settings.section"]');
+      if (!anchors.length || !anchors[anchors.length - 1].parentElement) continue;
+      return el;
+    }
+    return null;
   }
 
-  function place() {
-    const settings = findSettingsTrigger();
-    const row = layoutParent(settings);
-    const settingsArea = layoutParent(row);
-    const footArea = layoutParent(settingsArea);
-    if (!settings || !settingsArea || !footArea) {
-      if (host.parentElement) host.remove();
+  // Never build a selector from aria-labelledby: React useId values look like
+  // ":r1:" and are not valid CSS identifiers, so querySelector would throw.
+  function findNavList(dialog, nav) {
+    const titleId = dialog.getAttribute("aria-labelledby") || "";
+    let fallback = null;
+    for (const child of nav.children) {
+      if (titleId && child.id === titleId) continue;
+      if (child.querySelector("button")) return child;
+      if (!fallback) fallback = child;
+    }
+    return fallback;
+  }
+
+  function lastChild(node) {
+    return node.children[node.children.length - 1] ?? null;
+  }
+
+  // Idempotent: re-parents our two nodes only when React has moved or dropped
+  // them, and reads no layout. Runs after every mutation batch.
+  function mount(dialog) {
+    const nav = dialog.querySelector("nav");
+    if (!nav) return false;
+    const list = findNavList(dialog, nav);
+    if (!list) return false;
+    const anchors = dialog.querySelectorAll('[data-slot="settings.section"]');
+    const anchor = anchors[anchors.length - 1];
+    const options = anchor.parentElement;
+    if (!options) return false;
+    if (navButton.parentElement !== list || lastChild(list) !== navButton) {
+      list.append(navButton);
+    }
+    if (page.parentElement !== options || page.previousElementSibling !== anchor) {
+      options.insertBefore(page, anchor.nextElementSibling);
+    }
+    return true;
+  }
+
+  function setPageActive(active) {
+    if (active === pageActive && page.hidden === !active) return;
+    pageActive = active;
+    page.hidden = !active;
+    if (!dialogEl) return;
+    if (!active) {
+      dialogEl.removeAttribute("data-bc-page");
+      navButton.removeAttribute("aria-current");
       return;
     }
-    if (host.parentElement !== footArea || host.nextElementSibling !== settingsArea) {
-      footArea.insertBefore(host, settingsArea);
-    }
-    host.classList.toggle("rail", settings.getBoundingClientRect().width <= 40);
-    if (!pop.hidden) placePop();
+    dialogEl.setAttribute("data-bc-page", "on");
+    navButton.setAttribute("aria-current", "true");
+    renderDim();
+    void refresh();
+    const options = page.parentElement;
+    if (options) options.scrollTop = 0;
   }
 
-  function setOpen(open) {
-    pop.hidden = !open;
-    trigger.setAttribute("aria-expanded", open ? "true" : "false");
-    if (open) {
-      placePop();
+  function teardown() {
+    if (dialogEl) dialogEl.removeEventListener?.("click", onDialogClick, true);
+    dialogEl = null;
+    pageActive = false;
+    page.hidden = true;
+    navButton.removeAttribute("aria-current");
+    navButton.remove();
+    page.remove();
+  }
+
+  // React changes its active section only from a nav-cell click, and buttons fire
+  // click for keyboard activation too, so a capture-phase listener on the dialog
+  // is a complete reverse switch — and it runs before React re-renders.
+  function onDialogClick(event) {
+    if (!pageActive || !dialogEl) return;
+    const nav = dialogEl.querySelector("nav");
+    if (!nav || !nav.contains(event.target)) return;
+    if (navButton.contains(event.target)) return;
+    setPageActive(false);
+  }
+
+  function sync() {
+    const found = findSettingsDialog();
+    if (!found) {
+      if (dialogEl) teardown();
+      return;
+    }
+    if (found !== dialogEl) {
+      // Closing and reopening settings mounts a brand-new dialog: reset to the
+      // React page rather than restoring our section on a node React replaced.
+      teardown();
+      dialogEl = found;
+      dialogEl.addEventListener("click", onDialogClick, true);
       void refresh();
+    }
+    if (!mount(dialogEl)) return;
+    if (pageActive) {
+      dialogEl.setAttribute("data-bc-page", "on");
+      navButton.setAttribute("aria-current", "true");
+      page.hidden = false;
     }
   }
 
@@ -219,11 +328,42 @@
     msgEl.textContent = text;
   }
 
+  function renderImportCopy() {
+    if (!importPolicyReady) {
+      introEl.textContent = "给 DSH 换一张背景图片或视频。";
+      imageDescEl.textContent = "JPG / PNG / WebP / AVIF";
+      videoDescEl.textContent = "MP4";
+      return;
+    }
+    if (managedUploadAllowed) {
+      introEl.textContent = "给 DSH 换一张背景图片或视频。所选文件会复制一份托管副本。";
+      imageDescEl.textContent = "JPG / PNG / WebP / AVIF，将复制一份托管文件";
+      videoDescEl.textContent = "MP4，将复制后播放";
+      return;
+    }
+    introEl.textContent = "给 DSH 换一张背景图片或视频。本地文件只做引用，不复制主媒体。";
+    imageDescEl.textContent = "JPG / PNG / WebP / AVIF，直接引用本地文件";
+    videoDescEl.textContent = "MP4，零复制播放";
+  }
+
+  function syncImportControls() {
+    const locked = busy || !importPolicyReady;
+    imageBtn.disabled = locked;
+    videoBtn.disabled = locked;
+  }
+
   function renderStatus(data) {
     if (!data?.ok) {
       statusEl.textContent = data?.error || "未就绪";
+      syncImportControls();
       return;
     }
+    if (typeof data?.importPolicy?.managedUploadAllowed === "boolean") {
+      importPolicyReady = true;
+      managedUploadAllowed = data.importPolicy.managedUploadAllowed === true;
+    }
+    renderImportCopy();
+    syncImportControls();
     const label =
       data.atmosphere === "gallery"
         ? "画窗"
@@ -247,7 +387,8 @@
     }
     muted = data.muted !== false;
     soundBtn.classList.toggle("on", !muted);
-    soundBtn.textContent = muted ? "声音已关" : "声音已开";
+    soundBtn.textContent = muted ? "已关" : "已开";
+    soundBtn.setAttribute("aria-pressed", muted ? "false" : "true");
     const themes = Array.isArray(data.themes) ? data.themes : [];
     const selected = themes.find((theme) => theme.id === currentThemeId);
     const currentLabel = selected?.name || label;
@@ -270,7 +411,7 @@
         const source =
           theme.sourceMode === "local" ? "本地" : theme.bundled ? "内置" : "托管";
         const current = theme.id === currentThemeId ? ' aria-current="true"' : "";
-        return `<div class="bc-theme-row"><button type="button" class="bc-theme-item" data-theme-id="${escapeAttr(theme.id)}"${current}><span>${escapeText(theme.name)}</span><span class="bc-source">${source}</span></button>${del}</div>`;
+        return `<div class="bc-theme-row"><button type="button" class="bc-theme-item" data-theme-id="${escapeAttr(theme.id)}"${current}><span class="bc-theme-name">${escapeText(theme.name)}</span><span class="bc-source">${source}</span></button>${del}</div>`;
       })
       .join("");
     themeToggle.innerHTML = `<span>SAVED / ${String(themes.length).padStart(2, "0")}</span><span>${themesExpanded ? "−" : "+"}</span>`;
@@ -337,9 +478,9 @@
   async function run(task) {
     if (busy) return;
     busy = true;
-    pop.dataset.busy = "true";
+    page.dataset.busy = "true";
     let afterRun = null;
-    for (const button of pop.querySelectorAll(".bc-btn, .bc-theme-toggle, .bc-theme-item, .bc-theme-del")) button.disabled = true;
+    for (const button of page.querySelectorAll(".bc-btn, .bc-theme-toggle, .bc-theme-item, .bc-theme-del")) button.disabled = true;
     showMessage("正在处理，请稍候…");
     try {
       const result = await task();
@@ -363,8 +504,9 @@
       showMessage(error instanceof Error ? error.message : String(error));
     } finally {
       busy = false;
-      delete pop.dataset.busy;
-      for (const button of pop.querySelectorAll(".bc-btn, .bc-theme-toggle, .bc-theme-item, .bc-theme-del")) button.disabled = false;
+      delete page.dataset.busy;
+      for (const button of page.querySelectorAll(".bc-btn, .bc-theme-toggle, .bc-theme-item, .bc-theme-del")) button.disabled = false;
+      syncImportControls();
     }
     if (afterRun) queueMicrotask(afterRun);
   }
@@ -373,7 +515,7 @@
     const name = String(value || "").trim();
     if (!name) return "主题名不能为空。";
     if (name.length > 80) return "主题名不能超过 80 个字符。";
-    if (/[<>:"/\\|?*]/.test(name) || /[\u0000-\u001f]/.test(name)) {
+    if (/[<>:"/\\|?*]/.test(name) || ![...name].every((ch) => ch.codePointAt(0) > 31)) {
       return '主题名不能包含 < > : " / \\ | ? * 或控制字符。';
     }
     return "";
@@ -479,19 +621,90 @@
     });
   }
 
-  trigger.addEventListener("click", (event) => {
+  // "Fullscreen" here means hiding the browser's own chrome — tab strip, address
+  // bar, toolbar — so the page reads as a standalone app instead of a tab. The
+  // Fullscreen API is the only thing a page is allowed to call for that, and
+  // browsers only honour the request from inside a user gesture, so the call has
+  // to stay synchronous in the click handler for exactly the reason the file
+  // picker above does. Esc always exits, which is why the button label is only
+  // a convenience: we re-read the real state instead of tracking our own.
+  const FULLSCREEN_ENTER = ["requestFullscreen", "webkitRequestFullscreen"];
+  const FULLSCREEN_EXIT = ["exitFullscreen", "webkitExitFullscreen"];
+  function callFullscreen(owner, names) {
+    for (const name of names) {
+      const fn = owner?.[name];
+      if (typeof fn !== "function") continue;
+      try {
+        return Promise.resolve(fn.call(owner));
+      } catch (error) {
+        return Promise.reject(error);
+      }
+    }
+    return null;
+  }
+  function fullscreenElement() {
+    return document.fullscreenElement || document.webkitFullscreenElement || null;
+  }
+  function renderFullscreen() {
+    const supported = FULLSCREEN_ENTER.some(
+      (name) => typeof document.documentElement?.[name] === "function",
+    );
+    // Nothing to offer on a browser without the API, so drop the row rather
+    // than leave a button that would do nothing.
+    fullscreenRow.hidden = !supported;
+    if (!supported) return;
+    const on = fullscreenElement() != null;
+    fullscreenBtn.textContent = on ? "退出全屏" : "进入全屏";
+    fullscreenBtn.classList.toggle("on", on);
+    fullscreenBtn.setAttribute("aria-pressed", on ? "true" : "false");
+  }
+  function toggleFullscreen() {
+    const on = fullscreenElement() != null;
+    const pending = callFullscreen(
+      on ? document : document.documentElement,
+      on ? FULLSCREEN_EXIT : FULLSCREEN_ENTER,
+    );
+    if (!pending) {
+      showMessage("当前浏览器不支持全屏显示。");
+      return;
+    }
+    pending.then(renderFullscreen, (error) => {
+      showMessage(error instanceof Error ? error.message : String(error));
+    });
+  }
+
+  navButton.addEventListener("click", (event) => {
     event.stopPropagation();
-    setOpen(pop.hidden);
+    if (!pageActive) setPageActive(true);
   });
-  pop.querySelector('[data-act="image"]').addEventListener("click", () => {
-    void run(() => pickAndImport("image"));
+  // Safari (and WebKit generally) only opens a file picker when input.click()
+  // runs synchronously inside the user-gesture handler, and refuses to open one
+  // for an input hidden with display:none. On platforms that allow a managed
+  // upload, open the picker right here rather than asking /ui/pick first: that
+  // round trip pushed the click past the gesture, so the picker never appeared.
+  function startImport(kind) {
+    if (!importPolicyReady) {
+      showMessage("正在确认导入方式，请稍候再试。");
+      return;
+    }
+    if (!managedUploadAllowed) {
+      void run(() => pickAndImport(kind));
+      return;
+    }
+    fileInput.accept = kind === "video" ? VIDEO_ACCEPT : IMAGE_ACCEPT;
+    fileInput.dataset.compatibilityUpload = "true";
+    fileInput.click();
+  }
+  imageBtn.addEventListener("click", () => {
+    startImport("image");
   });
-  pop.querySelector('[data-act="video"]').addEventListener("click", () => {
-    void run(() => pickAndImport("video"));
+  videoBtn.addEventListener("click", () => {
+    startImport("video");
   });
-  pop.querySelector('[data-act="gallery"]').addEventListener("click", (event) => {
-    event.stopPropagation();
-    setOpen(false);
+  renderImportCopy();
+  syncImportControls();
+  page.querySelector('[data-act="gallery"]').addEventListener("click", () => {
+    // No setPageActive(false): the gallery is a fixed overlay above the dialog.
     if (window.BeauticodeGallery) {
       window.BeauticodeGallery.open().catch((error) => {
         showMessage(error instanceof Error ? error.message : String(error));
@@ -500,7 +713,7 @@
     }
     showMessage("皮肤中心脚本尚未加载。");
   });
-  pop.querySelector('[data-act="clear"]').addEventListener("click", () => {
+  page.querySelector('[data-act="clear"]').addEventListener("click", () => {
     void run(async () => {
       const result = await request("/__beauticode/ui/clear", { method: "POST" });
       currentThemeId = "";
@@ -528,6 +741,15 @@
     renderDim();
   });
   renderDim();
+  fullscreenBtn.addEventListener("click", (event) => {
+    event.stopPropagation();
+    toggleFullscreen();
+  });
+  // Esc leaves fullscreen without going through our button, so the label is
+  // driven by the browser's state rather than by what we last asked for.
+  document.addEventListener("fullscreenchange", renderFullscreen);
+  document.addEventListener("webkitfullscreenchange", renderFullscreen);
+  renderFullscreen();
   themeToggle.addEventListener("click", (event) => {
     event.stopPropagation();
     themesExpanded = !themesExpanded;
@@ -593,22 +815,21 @@
       });
     });
   });
-
-  document.addEventListener("click", (event) => {
-    if (pop.hidden) return;
-    if (pop.contains(event.target) || trigger.contains(event.target)) return;
-    setOpen(false);
-  });
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && !pop.hidden) setOpen(false);
-  });
   document.addEventListener("beauticode-gallery-installed", () => {
     void refresh();
   });
 
-  const observer = new MutationObserver(() => place());
-  observer.observe(document.documentElement, { childList: true, subtree: true });
-  window.addEventListener("resize", place);
-  setInterval(place, 500);
-  place();
+  let syncQueued = false;
+  function scheduleSync() {
+    if (syncQueued) return;
+    syncQueued = true;
+    queueMicrotask(() => {
+      syncQueued = false;
+      sync();
+    });
+  }
+  new MutationObserver(scheduleSync).observe(document.documentElement, { childList: true, subtree: true });
+  // Drift safety net: one query per second, no layout reads.
+  setInterval(sync, 1000);
+  sync();
 })();

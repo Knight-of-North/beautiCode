@@ -77,7 +77,7 @@ test("parseImportFilename accepts images and mp4 only", () => {
   assert.match(parseImportFilename("").error, /缺少文件名/);
 });
 
-test("plugin injects a compact sidebar console script", async (t) => {
+test("plugin injects the console script that joins the settings dialog", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "beauticode-ui-"));
   const tokenFile = path.join(root, "token");
   await fs.writeFile(tokenFile, TOKEN);
@@ -97,11 +97,18 @@ test("plugin injects a compact sidebar console script", async (t) => {
   assert.equal(response.status, 200);
   const source = await response.text();
   assert.doesNotThrow(() => new Function(source));
-  assert.match(source, /beauticode-console/);
-  assert.match(source, /button\[aria-haspopup="dialog"\]/);
+  assert.match(source, /beauticode-console-page/);
+  // The sidebar entry point is gone: the console lives inside the settings
+  // dialog now, so nothing may go looking for the sidebar settings button.
+  assert.doesNotMatch(source, /bc-trigger/);
+  assert.doesNotMatch(source, /aria-haspopup/);
+  assert.doesNotMatch(source, /footArea\.insertBefore/);
+  assert.match(source, /\[aria-modal="true"\]/);
+  assert.match(source, /data-slot="settings\.section"/);
+  assert.match(source, /data-bc-nav="console"/);
+  assert.match(source, /data-bc-page/);
   assert.doesNotMatch(source, /摸鱼/);
   assert.doesNotMatch(source, /<select/);
-  assert.match(source, /display:contents/);
   assert.match(source, /bc-theme-list/);
   assert.match(source, /beauticode-name-dialog/);
   assert.match(source, /ui\/import-selected/);
@@ -109,6 +116,10 @@ test("plugin injects a compact sidebar console script", async (t) => {
   assert.match(source, /本地引用，未复制主媒体/);
   assert.match(source, /托管副本/);
   assert.match(source, /兼容模式会复制媒体文件/);
+  assert.match(source, /managedUploadAllowed/);
+  assert.match(source, /importPolicyReady/);
+  assert.match(source, /将复制一份托管文件/);
+  assert.match(source, /正在确认导入方式/);
   assert.match(source, /45_000/);
   assert.match(source, /背景操作超时，控件已恢复/);
   assert.match(source, /\{ timeoutMs: 0 \}/);
@@ -117,9 +128,17 @@ test("plugin injects a compact sidebar console script", async (t) => {
   assert.doesNotMatch(source, /data-act="infernal"/);
   assert.match(source, /data-act="gallery"/);
   assert.match(source, /builtin-gallery/);
-  assert.match(source, /footArea\.insertBefore\(host, settingsArea\)/);
+  // Fullscreen hides the browser's own chrome, which is the only thing a page
+  // can do about the tab strip; the request must stay inside the gesture.
+  assert.match(source, /data-act="fullscreen"/);
+  assert.match(source, /requestFullscreen/);
+  // The macOS picker fix has to survive in the served file even if the console
+  // tests are ever weakened: input.click() must run inside the gesture, and the
+  // input must be hidden off-screen rather than with display:none.
+  assert.match(source, /#beauticode-console-file\{position:fixed;left:-9999px/);
+  assert.doesNotMatch(source, /#beauticode-console-file\{display:none/);
   assert.match(source, /fileInput\.type = "file"/);
-  assert.doesNotMatch(source, /#beauticode-console\{[^}]*color-scheme/);
+  assert.doesNotMatch(source, /#beauticode-console-page\{[^}]*color-scheme/);
 });
 
 test("console UI routes require same-origin and reject bad files", async (t) => {
