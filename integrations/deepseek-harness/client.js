@@ -116,6 +116,19 @@ html[data-bc-resolved-tone="light"][data-bc-active="true"] body{
   --dsw-alias-markdown-code-segment-selected:color-mix(in srgb,var(--dsw-static-neutral-bluish-00) var(--bc-content-mix),transparent);
   --dsw-alias-markdown-code-segment-unselected:color-mix(in srgb,var(--dsw-static-neutral-bluish-75) var(--bc-content-mix),transparent);
 }
+/* The cards listed under 本轮文件改动 (the deliverables grid) do not read an
+   alias token: the module root derives its own --deliverable-fill /
+   --deliverable-hover pair from the static palette, so no body-level override
+   reaches them. Declaring the pair on the card element itself wins over the
+   value it would otherwise inherit from that root. */
+html[data-bc-active="true"] [data-presented-file]{
+  --deliverable-fill:color-mix(in srgb,var(--dsw-static-neutral-850) var(--bc-content-mix),transparent);
+  --deliverable-hover:color-mix(in srgb,var(--dsw-static-neutral-800) var(--bc-content-mix),transparent);
+}
+html[data-bc-resolved-tone="light"][data-bc-active="true"] [data-presented-file]{
+  --deliverable-fill:color-mix(in srgb,var(--dsw-static-neutral-50) var(--bc-content-mix),transparent);
+  --deliverable-hover:color-mix(in srgb,var(--dsw-static-neutral-100) var(--bc-content-mix),transparent);
+}
 /* DSH renders the dropdown menus through --dsw-specific-menu, which it defines
    as var(--dsw-alias-bg-layer-3), so the layer override above already carries
    them onto the same tier. */

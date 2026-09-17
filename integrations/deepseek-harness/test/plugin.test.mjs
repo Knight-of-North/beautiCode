@@ -367,6 +367,13 @@ test("opaque DSH surfaces are re-expressed on the translucency tiers", async () 
   for (const token of chrome) {
     assert.match(declared.get(token), /var\(--bc-surface-mix\)/, `${token} follows the surface tier`);
   }
+  // The deliverables cards read a module-local fill pair instead of an alias
+  // token, so they have to be re-pointed on the card element itself.
+  assert.match(
+    style,
+    /\[data-presented-file\]\{[^}]*--deliverable-fill:color-mix\(in srgb,var\(--dsw-static-neutral-850\) var\(--bc-content-mix\),transparent\)/,
+    "the cards listed under 本轮文件改动 are translucent too",
+  );
 });
 
 test("browser client restores user dim from localStorage and can clear it", async () => {
