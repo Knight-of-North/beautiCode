@@ -1773,4 +1773,35 @@ html[data-bc-fish="true"] #root{opacity:0!important;visibility:hidden!important;
       }).catch(() => {});
     }
   }, 1_000);
+
+  // Fullscreen by default. A browser only grants fullscreen from inside a user
+  // gesture, so a page cannot open in it; the closest honest reading of
+  // "starts fullscreen" is the first click after load. Typing in the composer
+  // must not count: DSH's main action is a keydown. Escape or the settings row
+  // still exits, and an exit is not fought — the listener is spent on its first
+  // call, so a page load enters at most once.
+  function armFullscreenDefault() {
+    const root = document.documentElement;
+    if (typeof root?.requestFullscreen !== "function" &&
+        typeof root?.webkitRequestFullscreen !== "function") {
+      return;
+    }
+    let spent = false;
+    const enter = () => {
+      if (spent) return;
+      spent = true;
+      document.removeEventListener?.("pointerdown", enter, true);
+      if (document.fullscreenElement || document.webkitFullscreenElement) return;
+      for (const name of ["requestFullscreen", "webkitRequestFullscreen"]) {
+        const request = root?.[name];
+        if (typeof request !== "function") continue;
+        const started = request.call(root);
+        started?.catch?.(() => {});
+        return;
+      }
+    };
+    document.addEventListener?.("pointerdown", enter, { capture: true, once: true });
+  }
+
+  armFullscreenDefault();
 })();

@@ -380,6 +380,74 @@ test("opaque DSH surfaces are re-expressed on the translucency tiers", async () 
   );
 });
 
+/**
+ * Fullscreen cannot be entered without a user gesture, so "fullscreen by
+ * default" means taking the first click after load - exactly once, and never
+ * fighting an exit. A keydown in the composer must not count.
+ */
+test("browser client takes the first click to start fullscreen", async () => {
+  const source = await fs.readFile(new URL("../client.js", import.meta.url), "utf8");
+  const listeners = new Map();
+  let requested = 0;
+  const documentElement = {
+    dataset: {},
+    style: { setProperty() {}, removeProperty() {}, removeAttribute() {} },
+    removeAttribute() {},
+    requestFullscreen() {
+      requested += 1;
+      return Promise.resolve();
+    },
+  };
+  const context = {
+    crypto: { randomUUID: () => "client-fullscreen-test" },
+    document: {
+      body: { hasAttribute: () => false, prepend() {} },
+      documentElement,
+      fullscreenElement: null,
+      head: { append() {} },
+      createElement: () => ({ dataset: {}, style: {} }),
+      getElementById: () => null,
+      querySelector: () => null,
+      addEventListener(name, handler, options) {
+        listeners.set(name, { handler, options });
+      },
+      removeEventListener(name) {
+        listeners.delete(name);
+      },
+    },
+    fetch: async () => ({ ok: true }),
+    HTMLMediaElement: { HAVE_CURRENT_DATA: 2 },
+    HTMLVideoElement: class {},
+    Image: class {},
+    matchMedia: () => ({ matches: false, addEventListener() {} }),
+    MutationObserver: class {
+      observe() {}
+    },
+    EventSource: class {},
+    queueMicrotask: (callback) => callback(),
+    setInterval: () => 0,
+  };
+  context.window = context;
+  context.globalThis = context;
+  vm.runInNewContext(source, context);
+
+  assert.equal(typeof listeners.get("pointerdown")?.handler, "function", "the default is armed");
+  // Cross-realm objects do not compare by structure, so the flags are read out.
+  assert.equal(listeners.get("pointerdown").options.capture, true);
+  assert.equal(listeners.get("pointerdown").options.once, true);
+  assert.equal(listeners.has("keydown"), false, "typing in the composer is not a fullscreen gesture");
+  assert.equal(requested, 0, "nothing is requested before a gesture");
+
+  const enter = listeners.get("pointerdown").handler;
+  enter();
+  assert.equal(requested, 1, "the first click starts fullscreen");
+  assert.equal(listeners.has("pointerdown"), false, "and the arming is spent");
+
+  // An exit is not fought: a later click in the same page load does nothing.
+  enter();
+  assert.equal(requested, 1);
+});
+
 test("browser client restores user dim from localStorage and can clear it", async () => {
   const source = await fs.readFile(new URL("../client.js", import.meta.url), "utf8");
   const store = new Map();
