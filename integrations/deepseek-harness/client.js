@@ -49,27 +49,84 @@
   style.dataset.beauticodeBridge = "true";
   style.textContent = `
 html[data-bc-active="true"],html[data-bc-active="true"] body{background:transparent!important}
+/* Every surface DSH ships opaque is re-expressed as its own static palette
+   color at an alpha tier, so the whole UI is one translucent material instead
+   of a few translucent panels around solid blocks. Two knobs, both percentages:
+   --bc-surface-mix for chrome (columns, composer card, dropdowns, popovers,
+   chips) and --bc-content-mix for transcript content (user bubble, the colored
+   highlight blocks, code and diff blocks). A token declared here recomputes
+   whenever a phase / dim block below re-aliases its tier, so nothing has to be
+   repeated per state. */
 html[data-bc-active="true"] body{
+  --bc-surface-mix:36%;
+  --bc-content-mix:36%;
   --dsw-alias-bg-base:rgba(17,20,27,.10);
   --dsw-alias-bg-layer-1:rgba(26,30,39,.28);
   --dsw-alias-bg-layer-2:rgba(35,40,51,.32);
   --dsw-alias-bg-overlay:rgba(17,20,27,.12);
-  --dsw-specific-sidebar-fill:rgba(23,27,35,.28);
+  --dsw-specific-sidebar-fill:color-mix(in srgb,var(--dsw-static-neutral-bluish-900) var(--bc-surface-mix),transparent);
+  --dsw-specific-input-major:var(--dsw-specific-sidebar-fill);
+  --dsw-alias-bg-layer-3:color-mix(in srgb,var(--dsw-static-neutral-bluish-800) var(--bc-surface-mix),transparent);
+  --dsw-specific-tip:color-mix(in srgb,var(--dsw-static-neutral-bluish-800) var(--bc-surface-mix),transparent);
+  --dsw-alias-bg-module-platform:color-mix(in srgb,var(--dsw-static-neutral-bluish-800) var(--bc-surface-mix),transparent);
+  --dsw-specific-selector:color-mix(in srgb,var(--dsw-static-neutral-bluish-800) var(--bc-surface-mix),transparent);
+  --dsw-alias-interactive-bg-hover-solid:color-mix(in srgb,var(--dsw-static-neutral-bluish-800) var(--bc-surface-mix),transparent);
+  --dsw-alias-tooltip-bg:color-mix(in srgb,var(--dsw-static-neutral-bluish-750) var(--bc-surface-mix),transparent);
+  --dsw-alias-toast-bg:color-mix(in srgb,var(--dsw-static-neutral-bluish-750) var(--bc-surface-mix),transparent);
+  --dsw-alias-button-floating-fill:color-mix(in srgb,var(--dsw-static-neutral-bluish-850) var(--bc-surface-mix),transparent);
+  --dsw-specific-bubble:color-mix(in srgb,var(--dsw-static-neutral-bluish-850) var(--bc-content-mix),transparent);
+  --dsw-specific-bubble-highlight:color-mix(in srgb,var(--dsw-static-neutral-bluish-750) var(--bc-content-mix),transparent);
+  --dsw-alias-state-warn-tertiary:color-mix(in srgb,var(--dsw-static-amber-900) var(--bc-content-mix),transparent);
+  --dsw-alias-state-success-tertiary:color-mix(in srgb,var(--dsw-static-green-900) var(--bc-content-mix),transparent);
+  --dsw-alias-state-business-tertiary:color-mix(in srgb,var(--dsw-static-deepseek-800) var(--bc-content-mix),transparent);
+  --dsw-alias-markdown-code-block:color-mix(in srgb,var(--dsw-static-neutral-bluish-900) var(--bc-content-mix),transparent);
+  --dsw-alias-markdown-code-block-banner:color-mix(in srgb,var(--dsw-static-neutral-bluish-850) var(--bc-content-mix),transparent);
+  --dsw-alias-markdown-inline-code:color-mix(in srgb,var(--dsw-static-neutral-800) var(--bc-content-mix),transparent);
+  --dsw-alias-markdown-tag:color-mix(in srgb,var(--dsw-static-neutral-bluish-850) var(--bc-content-mix),transparent);
+  --dsw-alias-markdown-citation:color-mix(in srgb,var(--dsw-static-neutral-bluish-800) var(--bc-content-mix),transparent);
+  --dsw-alias-markdown-placeholder:color-mix(in srgb,var(--dsw-static-neutral-bluish-850) var(--bc-content-mix),transparent);
+  --dsw-alias-markdown-code-segment-selected:color-mix(in srgb,var(--dsw-static-neutral-bluish-800) var(--bc-content-mix),transparent);
+  --dsw-alias-markdown-code-segment-unselected:color-mix(in srgb,var(--dsw-static-neutral-bluish-900) var(--bc-content-mix),transparent);
 }
 html[data-bc-resolved-tone="light"][data-bc-active="true"] body{
   --dsw-alias-bg-base:rgba(248,250,252,.12);
   --dsw-alias-bg-layer-1:rgba(255,255,255,.28);
   --dsw-alias-bg-layer-2:rgba(248,250,252,.32);
   --dsw-alias-bg-overlay:rgba(255,255,255,.14);
-  --dsw-specific-sidebar-fill:rgba(255,255,255,.28);
+  --dsw-specific-sidebar-fill:color-mix(in srgb,var(--dsw-static-neutral-bluish-50) var(--bc-surface-mix),transparent);
+  --dsw-alias-bg-layer-3:color-mix(in srgb,var(--dsw-static-neutral-bluish-00) var(--bc-surface-mix),transparent);
+  --dsw-specific-tip:color-mix(in srgb,var(--dsw-static-neutral-bluish-60) var(--bc-surface-mix),transparent);
+  --dsw-alias-bg-module-platform:color-mix(in srgb,var(--dsw-static-neutral-bluish-60) var(--bc-surface-mix),transparent);
+  --dsw-specific-selector:color-mix(in srgb,var(--dsw-static-neutral-bluish-60) var(--bc-surface-mix),transparent);
+  --dsw-alias-interactive-bg-hover-solid:color-mix(in srgb,var(--dsw-static-neutral-bluish-75) var(--bc-surface-mix),transparent);
+  --dsw-alias-tooltip-bg:color-mix(in srgb,var(--dsw-static-neutral-bluish-850) var(--bc-surface-mix),transparent);
+  --dsw-alias-toast-bg:color-mix(in srgb,var(--dsw-static-neutral-bluish-800) var(--bc-surface-mix),transparent);
+  --dsw-alias-button-floating-fill:color-mix(in srgb,var(--dsw-static-neutral-bluish-00) var(--bc-surface-mix),transparent);
+  --dsw-specific-bubble:color-mix(in srgb,var(--dsw-static-deepseek-50) var(--bc-content-mix),transparent);
+  --dsw-specific-bubble-highlight:color-mix(in srgb,var(--dsw-static-deepseek-200) var(--bc-content-mix),transparent);
+  --dsw-alias-state-warn-tertiary:color-mix(in srgb,var(--dsw-static-amber-100) var(--bc-content-mix),transparent);
+  --dsw-alias-state-success-tertiary:color-mix(in srgb,var(--dsw-static-green-100) var(--bc-content-mix),transparent);
+  --dsw-alias-state-business-tertiary:color-mix(in srgb,var(--dsw-static-deepseek-100) var(--bc-content-mix),transparent);
+  --dsw-alias-markdown-code-block:color-mix(in srgb,var(--dsw-static-neutral-bluish-50) var(--bc-content-mix),transparent);
+  --dsw-alias-markdown-code-block-banner:color-mix(in srgb,var(--dsw-static-neutral-bluish-50) var(--bc-content-mix),transparent);
+  --dsw-alias-markdown-inline-code:color-mix(in srgb,var(--dsw-static-neutral-50) var(--bc-content-mix),transparent);
+  --dsw-alias-markdown-tag:color-mix(in srgb,var(--dsw-static-neutral-bluish-75) var(--bc-content-mix),transparent);
+  --dsw-alias-markdown-citation:color-mix(in srgb,var(--dsw-static-neutral-bluish-100) var(--bc-content-mix),transparent);
+  --dsw-alias-markdown-placeholder:color-mix(in srgb,var(--dsw-static-neutral-bluish-60) var(--bc-content-mix),transparent);
+  --dsw-alias-markdown-code-segment-selected:color-mix(in srgb,var(--dsw-static-neutral-bluish-00) var(--bc-content-mix),transparent);
+  --dsw-alias-markdown-code-segment-unselected:color-mix(in srgb,var(--dsw-static-neutral-bluish-75) var(--bc-content-mix),transparent);
 }
+/* DSH renders the dropdown menus through --dsw-specific-menu, which it defines
+   as var(--dsw-alias-bg-layer-3), so the layer override above already carries
+   them onto the same tier. */
 html[data-bc-active="true"]:has(#root [data-phase="active"]) body,
 html[data-bc-active="true"]:has(#root [data-phase="settling"]) body{
+  --bc-surface-mix:86%;
+  --bc-content-mix:72%;
   --dsw-alias-bg-base:rgba(17,20,27,.42);
   --dsw-alias-bg-layer-1:rgba(26,30,39,.72);
   --dsw-alias-bg-layer-2:rgba(35,40,51,.80);
   --dsw-alias-bg-overlay:rgba(17,20,27,.86);
-  --dsw-specific-sidebar-fill:rgba(23,27,35,.78);
 }
 html[data-bc-resolved-tone="light"][data-bc-active="true"]:has(#root [data-phase="active"]) body,
 html[data-bc-resolved-tone="light"][data-bc-active="true"]:has(#root [data-phase="settling"]) body{
@@ -77,7 +134,6 @@ html[data-bc-resolved-tone="light"][data-bc-active="true"]:has(#root [data-phase
   --dsw-alias-bg-layer-1:rgba(255,255,255,.74);
   --dsw-alias-bg-layer-2:rgba(248,250,252,.82);
   --dsw-alias-bg-overlay:rgba(255,255,255,.86);
-  --dsw-specific-sidebar-fill:rgba(255,255,255,.78);
 }
 #beauticode-bg-stage{position:fixed;inset:0;z-index:0;overflow:hidden;pointer-events:none;background:#11141b}
 #beauticode-bg-stage::after{content:"";position:absolute;inset:0;z-index:3;background:transparent;pointer-events:none}
@@ -92,7 +148,8 @@ html[data-bc-dim-user="true"][data-bc-active="true"]:has(#root [data-phase="sett
   --dsw-alias-bg-layer-1:rgba(26,30,39,.28);
   --dsw-alias-bg-layer-2:rgba(35,40,51,.32);
   --dsw-alias-bg-overlay:rgba(17,20,27,.12);
-  --dsw-specific-sidebar-fill:rgba(23,27,35,.28);
+  --bc-surface-mix:36%;
+  --bc-content-mix:36%;
 }
 html[data-bc-resolved-tone="light"][data-bc-dim-user="true"][data-bc-active="true"]:has(#root [data-phase="active"]) body,
 html[data-bc-resolved-tone="light"][data-bc-dim-user="true"][data-bc-active="true"]:has(#root [data-phase="settling"]) body{
@@ -100,7 +157,6 @@ html[data-bc-resolved-tone="light"][data-bc-dim-user="true"][data-bc-active="tru
   --dsw-alias-bg-layer-1:rgba(255,255,255,.28);
   --dsw-alias-bg-layer-2:rgba(248,250,252,.32);
   --dsw-alias-bg-overlay:rgba(255,255,255,.14);
-  --dsw-specific-sidebar-fill:rgba(255,255,255,.28);
 }
 html[data-bc-dim-user="true"][data-bc-active="true"] #beauticode-bg-stage::after{background:rgba(0,0,0,var(--bc-dim))!important}
 html[data-bc-resolved-tone="light"][data-bc-dim-user="true"][data-bc-active="true"] #beauticode-bg-stage::after{background:rgba(255,255,255,var(--bc-dim))!important}
