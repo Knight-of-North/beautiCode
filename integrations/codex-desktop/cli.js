@@ -58,11 +58,12 @@ function rewriteCoreImports(text) {
 }
 
 async function ensureVendor(destRoot) {
-  const vendorAdapter = path.join(destRoot, "vendor", "adapter-codex");
-  if (fs.existsSync(path.join(vendorAdapter, "index.js"))) return;
+  const vendorRoot = path.join(destRoot, "vendor");
+  const vendorAdapter = path.join(vendorRoot, "adapter-codex");
+  await fsp.rm(vendorRoot, { recursive: true, force: true });
   const packed = path.join(here, "vendor", "adapter-codex");
   if (fs.existsSync(path.join(packed, "index.js"))) {
-    await copyJsTree(path.join(here, "vendor"), path.join(destRoot, "vendor"));
+    await copyJsTree(path.join(here, "vendor"), vendorRoot);
     return;
   }
   const repoCore = path.resolve(here, "../../packages/core/dist");
@@ -70,7 +71,7 @@ async function ensureVendor(destRoot) {
   if (!fs.existsSync(path.join(repoAdapter, "index.js"))) {
     throw new Error("缺少 adapter-codex 产物。请先运行 npm run build。");
   }
-  await copyJsTree(repoCore, path.join(destRoot, "vendor", "core"));
+  await copyJsTree(repoCore, path.join(vendorRoot, "core"));
   await copyJsTree(repoAdapter, vendorAdapter);
   for (const name of await fsp.readdir(vendorAdapter)) {
     if (!name.endsWith(".js")) continue;
@@ -110,21 +111,12 @@ function removeRunKey() {
 }
 
 function startHidden(node, script) {
-  if (process.platform !== "win32") {
-    spawn(node, [script], { detached: true, stdio: "ignore" }).unref();
-    return;
-  }
-  spawn(
-    "powershell.exe",
-    [
-      "-NoProfile",
-      "-WindowStyle",
-      "Hidden",
-      "-Command",
-      `Start-Process -WindowStyle Hidden -FilePath ${JSON.stringify(node)} -ArgumentList ${JSON.stringify(script)}`,
-    ],
-    { detached: true, stdio: "ignore" },
-  ).unref();
+  const child = spawn(node, [script], {
+    detached: true,
+    stdio: "ignore",
+    windowsHide: true,
+  });
+  child.unref();
 }
 
 export async function runCli(argv = process.argv.slice(2)) {

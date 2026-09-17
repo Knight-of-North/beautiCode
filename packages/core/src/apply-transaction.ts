@@ -31,6 +31,11 @@ export interface ApplyTransactionOptions {
   host?: HostApplier | null;
   /** DSH uses the authenticated loopback image URL and does not need a data URL. */
   includeImageDataUrl?: boolean;
+  /**
+   * Skip embedding the poster as a data URL when the file is larger than this.
+   * Codex CDP dies around ~1.8MB evaluates; large stills go file-input → blob.
+   */
+  maxInlineImageBytes?: number;
   /** Background-only CSS text injected with every apply. */
   cssText?: string;
   verifyDeadlineMs?: number;
@@ -105,6 +110,7 @@ export class ApplyTransaction {
   readonly verifyDeadlineMs: number;
   readonly offline: boolean;
   readonly includeImageDataUrl: boolean;
+  readonly maxInlineImageBytes: number | null;
   #busy = false;
 
   constructor(opts: ApplyTransactionOptions) {
@@ -115,6 +121,12 @@ export class ApplyTransaction {
     this.verifyDeadlineMs = opts.verifyDeadlineMs ?? 30_000;
     this.offline = opts.offline ?? false;
     this.includeImageDataUrl = opts.includeImageDataUrl ?? true;
+    this.maxInlineImageBytes =
+      typeof opts.maxInlineImageBytes === "number" &&
+      Number.isFinite(opts.maxInlineImageBytes) &&
+      opts.maxInlineImageBytes >= 0
+        ? opts.maxInlineImageBytes
+        : null;
   }
 
   get busy(): boolean {
@@ -333,7 +345,12 @@ export class ApplyTransaction {
       staged,
       this.cssText,
       videoStartAt,
-      { includeImageDataUrl: this.includeImageDataUrl },
+      {
+        includeImageDataUrl: this.includeImageDataUrl,
+        ...(this.maxInlineImageBytes != null
+          ? { maxInlineImageBytes: this.maxInlineImageBytes }
+          : {}),
+      },
     );
   }
 
@@ -386,7 +403,7 @@ export async function buildHostApplyPayload(
   staged: StagedMediaPair | null,
   cssText: string,
   videoStartAt?: number,
-  opts: { includeImageDataUrl?: boolean } = {},
+  opts: { includeImageDataUrl?: boolean; maxInlineImageBytes?: number } = {},
 ): Promise<HostApplyPayload> {
   if (!manifest.background) {
     return {
@@ -404,8 +421,14 @@ export async function buildHostApplyPayload(
     manifest.background,
   );
   if (!imagePath) throw new Error("Background has no image source.");
-  const imageDataUrl =
-    opts.includeImageDataUrl === false ? null : await fileToDataUrl(imagePath);
+  let imageDataUrl: string | null = null;
+  if (opts.includeImageDataUrl !== false) {
+    const imageStat = await fs.stat(imagePath);
+    const inlineCap = opts.maxInlineImageBytes;
+    if (inlineCap == null || imageStat.size <= inlineCap) {
+      imageDataUrl = await fileToDataUrl(imagePath);
+    }
+  }
   const imageUrl = staged?.image?.srcUrl ?? null;
   if (manifest.background.type === "image") {
     return {
@@ -413,6 +436,7 @@ export async function buildHostApplyPayload(
       media: "image",
       imageDataUrl,
       imageUrl,
+      imageLocalPath: imagePath,
       video: null,
       cssText,
       atmosphere: manifest.background.effects ?? null,
@@ -452,6 +476,7 @@ export async function buildHostApplyPayload(
     media: "video",
     imageDataUrl,
     imageUrl,
+    imageLocalPath: imagePath,
     video,
     cssText,
   };

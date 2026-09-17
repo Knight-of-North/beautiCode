@@ -2,6 +2,11 @@ import crypto from "node:crypto";
 import path from "node:path";
 import type { BeautiSession } from "./session.js";
 import { pickLocalMedia } from "./native-picker.js";
+import {
+  installSkinFromCenter,
+  skinCenterCatalog,
+  skinCenterConfig,
+} from "./skin-center.js";
 
 const SELECTION_TTL_MS = 5 * 60 * 1000;
 
@@ -47,7 +52,7 @@ export function createConsoleHost(session: BeautiSession) {
           : "managed"
         : "clear",
       themes: await publicThemes(),
-      skinCenter: { url: null, enabled: false },
+      skinCenter: await skinCenterConfig(),
     };
   }
 
@@ -58,6 +63,20 @@ export function createConsoleHost(session: BeautiSession) {
         ? (request.body as Record<string, unknown>)
         : {};
     if (route === "/__beauticode/ui/status") return status();
+    if (route === "/__beauticode/ui/gallery/config") return skinCenterConfig();
+    if (route.startsWith("/__beauticode/ui/gallery/catalog")) {
+      const url = new URL(route, "http://beauticode.local");
+      const query: { q?: string; type?: string } = {};
+      const q = url.searchParams.get("q");
+      const type = url.searchParams.get("type");
+      if (q) query.q = q;
+      if (type) query.type = type;
+      return skinCenterCatalog(query);
+    }
+    if (route === "/__beauticode/ui/gallery/install") {
+      const id = typeof body.id === "string" ? body.id.trim() : "";
+      return installSkinFromCenter(session, id);
+    }
     if (route === "/__beauticode/ui/clear") {
       const result = await session.apply({ type: "clear" });
       return result.ok

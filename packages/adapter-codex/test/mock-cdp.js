@@ -35,12 +35,12 @@ export async function startMockCdp(opts = {}) {
     }
 
     // Injection wraps the runtime source then ends with
-    // `)(css, imageDataUrl, video, generation, imageUrl, forceRebuild)`.
+    // `)(css, imageDataUrl, video, generation, imageUrl, forceRebuild, imageBlob)`.
     // Do not use [^)]* — CSS may contain rgba(...).
     // Tail is legacy `,GEN)` or current
-    // `,GEN,null,false)` / `,GEN,"http...",true)`.
+    // `,GEN,null,false,false)` / `,GEN,"http...",true,true)`.
     const tailMatch = expression.match(
-      /,(\d+)(?:,(null|"[^"]*"))?(?:,(true|false))?\)\s*$/,
+      /,(\d+)(?:,(null|"[^"]*"))?(?:,(true|false))?(?:,(true|false))?\)\s*$/,
     );
     const isInjection =
       expression.includes("beauticode-bg-stage") &&
@@ -54,10 +54,13 @@ export async function startMockCdp(opts = {}) {
         typeof imageUrlArg === "string" &&
         imageUrlArg !== "null" &&
         imageUrlArg.length > 2;
-      // Args: css, imageDataUrl, video, generation, imageUrl, forceRebuild
+      // Args: css, imageDataUrl, video, generation, imageUrl, forceRebuild, imageBlob
       // clear → imageDataUrl null AND video null AND imageUrl null:
-      //   ...,null,null,GEN,null)  or legacy ...,null,null,GEN)
+      //   ...,null,null,GEN,null,false,false)  or legacy ...,null,null,GEN)
       const isClear =
+        /null,null,\d+,null,(?:true|false),(?:true|false)\)\s*$/.test(
+          expression,
+        ) ||
         /null,null,\d+,null,(?:true|false)\)\s*$/.test(expression) ||
         /null,null,\d+,null\)\s*$/.test(expression) ||
         /null,null,\d+\)\s*$/.test(expression);
@@ -66,6 +69,8 @@ export async function startMockCdp(opts = {}) {
         expression.includes('"mode": "server"') ||
         expression.includes('"mode":"data"') ||
         expression.includes('"mode": "data"') ||
+        expression.includes('"mode":"blob"') ||
+        expression.includes('"mode": "blob"') ||
         expression.includes('"dataUrl"') ||
         expression.includes('"srcUrl"');
       // data: image still counts as image even without imageUrl.
@@ -120,6 +125,10 @@ export async function startMockCdp(opts = {}) {
           duration: media === "video" ? 120 : 0,
           hasVideo: media === "video",
         }),
+        ensureVideoInput: () => media === "video",
+        attachVideoFile: () => media === "video",
+        ensureImageInput: () => media === "image",
+        attachImageFile: () => media === "image",
         seekTo: (seconds) => {
           const t = Number(seconds);
           const next =
@@ -210,6 +219,39 @@ export async function startMockCdp(opts = {}) {
       if (!api || typeof api.setBackgroundTone !== "function") return false;
       const match = expression.match(/setBackgroundTone\("(dark|light|auto)"\)/);
       return Boolean(api.setBackgroundTone(match ? match[1] : "dark"));
+    }
+
+    if (
+      expression.includes("__BEAUTICODE_BG__") &&
+      expression.length < 1200 &&
+      (expression.includes("ensureImageInput") ||
+        expression.includes("attachImageFile") ||
+        expression.includes("ensureVideoInput") ||
+        expression.includes("attachVideoFile"))
+    ) {
+      const api = s.runtime.__BEAUTICODE_BG__;
+      if (!api) return false;
+      if (expression.includes("ensureImageInput")) {
+        return typeof api.ensureImageInput === "function"
+          ? Boolean(api.ensureImageInput())
+          : false;
+      }
+      if (expression.includes("attachImageFile")) {
+        return typeof api.attachImageFile === "function"
+          ? Boolean(api.attachImageFile())
+          : false;
+      }
+      if (expression.includes("ensureVideoInput")) {
+        return typeof api.ensureVideoInput === "function"
+          ? Boolean(api.ensureVideoInput())
+          : false;
+      }
+      if (expression.includes("attachVideoFile")) {
+        return typeof api.attachVideoFile === "function"
+          ? Boolean(api.attachVideoFile())
+          : false;
+      }
+      return false;
     }
 
     // Playback position / seek (short expressions).
@@ -332,6 +374,44 @@ export async function startMockCdp(opts = {}) {
         return;
       }
       if (msg.method === "Runtime.addBinding") {
+        if (opts.addBindingError) {
+          ws.send(
+            JSON.stringify({
+              id: msg.id,
+              error: { code: -32000, message: String(opts.addBindingError) },
+            }),
+          );
+          return;
+        }
+        ws.send(JSON.stringify({ id: msg.id, result: {} }));
+        return;
+      }
+      if (
+        msg.method === "Page.bringToFront" ||
+        msg.method === "DOM.enable"
+      ) {
+        ws.send(JSON.stringify({ id: msg.id, result: {} }));
+        return;
+      }
+      if (msg.method === "DOM.getDocument") {
+        ws.send(
+          JSON.stringify({
+            id: msg.id,
+            result: { root: { nodeId: 1 } },
+          }),
+        );
+        return;
+      }
+      if (msg.method === "DOM.querySelector") {
+        ws.send(
+          JSON.stringify({
+            id: msg.id,
+            result: { nodeId: 2 },
+          }),
+        );
+        return;
+      }
+      if (msg.method === "DOM.setFileInputFiles") {
         ws.send(JSON.stringify({ id: msg.id, result: {} }));
         return;
       }

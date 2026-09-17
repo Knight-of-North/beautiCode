@@ -22,7 +22,7 @@ import { CdpIdentityMismatchError, CdpError } from "./cdp.js";
 import { probeCdp } from "./discovery.js";
 import { findBestCdpPort } from "./host-discover.js";
 import { acquireInjectorLock } from "./injector-lock.js";
-import { loadRendererSource } from "./payload.js";
+import { loadRendererSource, MAX_CDP_INLINE_IMAGE_BYTES } from "./payload.js";
 import { CODEX_HOST_DESCRIPTOR } from "./host-descriptor.js";
 
 export interface BeautiSessionOptions {
@@ -317,6 +317,7 @@ export class BeautiSession implements HostSession {
         host: this.host,
         cssText,
         verifyDeadlineMs: this.verifyDeadlineMs,
+        maxInlineImageBytes: MAX_CDP_INLINE_IMAGE_BYTES,
         offline: false,
       });
       const result = await tx.run(input);
@@ -649,6 +650,7 @@ export class BeautiSession implements HostSession {
         host: this.host,
         cssText,
         verifyDeadlineMs: this.verifyDeadlineMs,
+        maxInlineImageBytes: MAX_CDP_INLINE_IMAGE_BYTES,
         offline: false,
       });
       const result = await tx.run(saved.input);
@@ -735,6 +737,7 @@ export class BeautiSession implements HostSession {
       port,
       requireAppProtocol: this.requireAppProtocol,
       pollMs: Math.min(this.pollMs, 400),
+      connectDeadlineMs: 15_000,
       onConsoleRequest: (request) => this.consoleHost.handle(request),
     };
     if (this.urlPrefix !== undefined) options.urlPrefix = this.urlPrefix;
@@ -767,7 +770,15 @@ export class BeautiSession implements HostSession {
       try {
         await this.ensureHost({ allowDiscover: true });
       } catch {
-        this.forgetHost();
+        if (this.port != null) {
+          try {
+            await probeCdp(this.port, "127.0.0.1", { timeoutMs: 400 });
+          } catch {
+            this.forgetHost();
+          }
+        } else {
+          this.forgetHost();
+        }
         return;
       }
       if (!this.host || this.port == null) return;
@@ -933,6 +944,8 @@ export class BeautiSession implements HostSession {
         manifest,
         { image: imageHandle, video: videoHandle },
         cssText,
+        undefined,
+        { maxInlineImageBytes: MAX_CDP_INLINE_IMAGE_BYTES },
       );
       runtimeVideoPath = payload.video?.localPath ?? null;
       await this.host.apply(payload, { forceRebuild: forceVideoRebuild });

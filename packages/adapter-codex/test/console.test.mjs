@@ -273,6 +273,49 @@ test("console mounts below 探索 in the Codex rail", async () => {
   assert.equal(nav.children.map((child) => child.id || child.textContent).join(","), "item-新对话,item-Pull Request,item-定时任务,item-插件,item-探索,beauticode-console");
 });
 
+test("console remounts after the rail wipes the 背景 entry", async () => {
+  const document = createConsoleDocument();
+  const { nav, explore } = mountCodexSidebar(document);
+  const source = await fs.readFile(
+    new URL("../src/renderer/console.js", import.meta.url),
+    "utf8",
+  );
+  const ticks = [];
+  const context = {
+    window: null,
+    document,
+    crypto: { randomUUID: () => "test-id" },
+    MutationObserver: class {
+      observe() {}
+    },
+    addEventListener() {},
+    innerHeight: 800,
+    setInterval: (fn) => {
+      ticks.push(fn);
+      return ticks.length;
+    },
+    getComputedStyle: (el) => ({ display: el?.style?.display || "block" }),
+  };
+  context.window = context;
+  context.globalThis = context;
+  context.window.__beauticodeBridgePending = new Map();
+  vm.runInNewContext(source, context);
+  for (const fn of ticks) fn();
+  const first = document.getElementById("beauticode-console");
+  assert.equal(first?.previousElementSibling, explore);
+  first.remove();
+  assert.equal(document.getElementById("beauticode-console"), null);
+  vm.runInNewContext(source, context);
+  for (const fn of ticks) fn();
+  const again = document.getElementById("beauticode-console");
+  assert.equal(again?.parentElement?.id, "codex-rail");
+  assert.equal(again?.previousElementSibling, explore);
+  assert.equal(
+    nav.children.map((child) => child.id || child.textContent).join(","),
+    "item-新对话,item-Pull Request,item-定时任务,item-插件,item-探索,beauticode-console",
+  );
+});
+
 test("console pop keeps DSH 背景清单 controls", async () => {
   const document = createConsoleDocument();
   mountCodexSidebar(document);
@@ -286,4 +329,20 @@ test("console pop keeps DSH 背景清单 controls", async () => {
   assert.match(pop.innerHTML, /class="bc-dim-slider"/);
   assert.match(pop.innerHTML, /恢复默认/);
   assert.equal(pop.querySelector(".bc-dim-value")?.textContent, "自动");
+});
+
+test("console wires dim API and opens gallery overlay", async () => {
+  const consoleSource = await fs.readFile(
+    new URL("../src/renderer/console.js", import.meta.url),
+    "utf8",
+  );
+  const gallerySource = await fs.readFile(
+    new URL("../src/renderer/gallery.js", import.meta.url),
+    "utf8",
+  );
+  assert.match(consoleSource, /BeauticodeBackgroundDim/);
+  assert.match(consoleSource, /BeauticodeGallery\.open/);
+  assert.doesNotMatch(consoleSource, /Codex 无法打开远程皮肤中心/);
+  assert.match(gallerySource, /window\.BeauticodeGallery = \{ open, close \}/);
+  assert.match(gallerySource, /\/__beauticode\/ui\/gallery\/catalog/);
 });

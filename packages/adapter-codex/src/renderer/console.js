@@ -1,7 +1,25 @@
 (() => {
   "use strict";
-  if (window.__beauticodeConsoleLoaded) return;
+  const CONSOLE_REV = 3;
+  if (window.__beauticodeConsoleRev === CONSOLE_REV && window.__beauticodeConsoleLoaded) {
+    try {
+      window.__beauticodeConsolePlace?.();
+    } catch {
+      /* ignore */
+    }
+    return;
+  }
+  try {
+    document.getElementById("beauticode-console")?.remove();
+    document.getElementById("beauticode-console-pop")?.remove();
+    document.getElementById("beauticode-gallery")?.remove();
+    document.getElementById("beauticode-name-dialog")?.remove();
+  } catch {
+    /* ignore */
+  }
   window.__beauticodeConsoleLoaded = true;
+  window.__beauticodeConsoleRev = CONSOLE_REV;
+  window.__beauticodeGalleryLoaded = false;
 
   const IMAGE_ACCEPT = ".jpg,.jpeg,.png,.webp,.avif,image/jpeg,image/png,image/webp,image/avif";
   const VIDEO_ACCEPT = ".mp4,video/mp4";
@@ -123,6 +141,78 @@ body:not([data-ds-dark-theme]) #beauticode-console-pop{background:#f3f0e9;color:
   let muted = true;
   let currentThemeId = "";
   let themesExpanded = true;
+
+  const DIM_STORAGE_KEY = "beauticode-dim";
+  let userDim = null;
+
+  function clampDim(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n) || n < 0 || n > 1) return null;
+    return n;
+  }
+
+  function readStoredDim() {
+    try {
+      const raw = globalThis.localStorage?.getItem(DIM_STORAGE_KEY);
+      if (raw == null || raw === "") return null;
+      return clampDim(raw);
+    } catch {
+      return null;
+    }
+  }
+
+  function writeStoredDim(value) {
+    try {
+      if (value == null) globalThis.localStorage?.removeItem(DIM_STORAGE_KEY);
+      else globalThis.localStorage?.setItem(DIM_STORAGE_KEY, String(value));
+    } catch {
+      /* private mode / quota */
+    }
+  }
+
+  function applyUserDim(value) {
+    const root = document.documentElement;
+    if (value == null) {
+      try {
+        root.removeAttribute("data-bc-dim-user");
+        root.style?.removeProperty?.("--bc-dim");
+      } catch {
+        /* ignore */
+      }
+      return null;
+    }
+    try {
+      root.setAttribute("data-bc-dim-user", "true");
+      root.style?.setProperty?.("--bc-dim", String(value));
+    } catch {
+      /* ignore */
+    }
+    return value;
+  }
+
+  function setUserDim(value) {
+    const next = clampDim(value);
+    if (next == null) return userDim;
+    userDim = next;
+    writeStoredDim(next);
+    applyUserDim(next);
+    return next;
+  }
+
+  function clearUserDim() {
+    userDim = null;
+    writeStoredDim(null);
+    applyUserDim(null);
+    return null;
+  }
+
+  userDim = readStoredDim();
+  if (userDim != null) applyUserDim(userDim);
+  globalThis.BeauticodeBackgroundDim = {
+    get: () => userDim,
+    set: setUserDim,
+    clear: clearUserDim,
+  };
 
   function renderDim() {
     const current = globalThis.BeauticodeBackgroundDim?.get?.() ?? null;
@@ -537,7 +627,13 @@ body:not([data-ds-dark-theme]) #beauticode-console-pop{background:#f3f0e9;color:
   pop.querySelector('[data-act="gallery"]').addEventListener("click", (event) => {
     event.stopPropagation();
     setOpen(false);
-    showMessage("Codex 无法打开远程皮肤中心，请导入本地文件或切换已保存主题。");
+    if (window.BeauticodeGallery) {
+      window.BeauticodeGallery.open().catch((error) => {
+        showMessage(error instanceof Error ? error.message : String(error));
+      });
+      return;
+    }
+    showMessage("皮肤中心脚本尚未加载。");
   });
   pop.querySelector('[data-act="clear"]').addEventListener("click", () => {
     void run(async () => {
@@ -649,5 +745,6 @@ body:not([data-ds-dark-theme]) #beauticode-console-pop{background:#f3f0e9;color:
   observer.observe(document.documentElement, { childList: true, subtree: true });
   window.addEventListener("resize", place);
   setInterval(place, 500);
+  window.__beauticodeConsolePlace = place;
   place();
 })();
