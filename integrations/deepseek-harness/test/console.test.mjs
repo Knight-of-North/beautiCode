@@ -886,8 +886,8 @@ test("the saved list marks the background in use like a configured model", async
           statusBody({
             themeId: "t2",
             themes: [
-              { id: "t1", name: "雨夜", sourceMode: "local" },
-              { id: "t2", name: "怪诞小镇", sourceMode: "managed" },
+              { id: "t1", name: "雨夜", type: "image", sourceMode: "local" },
+              { id: "t2", name: "怪诞小镇", type: "image", sourceMode: "managed" },
             ],
           }),
         ),
@@ -923,6 +923,128 @@ test("the saved list marks the background in use like a configured model", async
     /\.bc-theme-dot\{[^}]*width:8px;height:8px;background:var\(--dsw-alias-state-success-primary\)/,
   );
 });
+
+/**
+ * The saved list is split by media kind, switched the way Settings -> 插件
+ * switches between its two pages: a tab row on a hairline rule, the active tab
+ * in label-primary with an underline, nothing else highlighted.
+ */
+test("the saved list switches between image and video backgrounds", async () => {
+  const document = createConsoleDocument();
+  mountSettingsDialog(document);
+  // Any path answers with the same status here: what this test exercises is the
+  // tab row, not the request routing.
+  await loadConsole(document, {
+    fetch: async () =>
+      okJson(
+        statusBody({
+          themeId: "i1",
+          themes: [
+            { id: "i1", name: "雨夜", type: "image", sourceMode: "local" },
+            { id: "v1", name: "海浪", type: "video", sourceMode: "managed" },
+          ],
+        }),
+      ),
+  });
+
+  navCell(document).click();
+  await flushAsync();
+
+  const page = pageEl(document);
+  // The harness parses innerHTML flat and keeps no text, so the copy is
+  // asserted on the markup and the state on the elements.
+  assert.match(page.innerHTML, /<h3 class="bc-theme-title">已保存的背景<\/h3>/);
+  const tabs = page.querySelectorAll(".bc-tab");
+  assert.equal(tabs.length, 2);
+  assert.deepEqual(
+    tabs.map((tab) => tab.getAttribute("data-category")),
+    ["image", "video"],
+  );
+  assert.match(page.innerHTML, />图片<\/button>/);
+  assert.match(page.innerHTML, />视频<\/button>/);
+
+  const [imageTab, videoTab] = tabs;
+  assert.equal(
+    imageTab.getAttribute("data-active"),
+    "true",
+    "opens on the category of the background in use",
+  );
+  assert.equal(imageTab.getAttribute("aria-selected"), "true");
+  assert.equal(videoTab.getAttribute("data-active"), null);
+  const list = page.querySelector(".bc-theme-list");
+  assert.match(list.innerHTML, /data-theme-id="i1"/);
+  assert.doesNotMatch(list.innerHTML, /data-theme-id="v1"/);
+
+  videoTab.click();
+  assert.equal(videoTab.getAttribute("data-active"), "true");
+  assert.equal(videoTab.getAttribute("aria-selected"), "true");
+  assert.equal(imageTab.getAttribute("data-active"), null, "only one tab is highlighted");
+  assert.equal(imageTab.getAttribute("aria-selected"), "false");
+  assert.match(list.innerHTML, /data-theme-id="v1"/);
+  assert.doesNotMatch(list.innerHTML, /data-theme-id="i1"/);
+  assert.equal(page.querySelector(".bc-theme-count").textContent, "1");
+});
+
+test("an empty category says so instead of showing nothing", async () => {
+  const document = createConsoleDocument();
+  mountSettingsDialog(document);
+  await loadConsole(document, {
+    fetch: routedFetch({
+      "/__beauticode/ui/status": () =>
+        okJson(
+          statusBody({
+            themeId: "i1",
+            themes: [{ id: "i1", name: "雨夜", type: "image", sourceMode: "local" }],
+          }),
+        ),
+    }),
+  });
+
+  navCell(document).click();
+  await flushAsync();
+
+  const page = pageEl(document);
+  page.querySelectorAll(".bc-tab")[1].click();
+
+  const empty = page.querySelector(".bc-empty");
+  assert.equal(empty.hidden, false);
+  assert.match(empty.textContent, /还没有保存的视频背景/);
+  assert.equal(page.querySelector(".bc-theme-list").innerHTML, "");
+  assert.equal(
+    page.querySelector(".bc-theme-count").textContent,
+    "0",
+    "the heading counts what is actually listed",
+  );
+});
+
+test("the saved list stays expanded: showing it is not a setting", async () => {
+  const document = createConsoleDocument();
+  mountSettingsDialog(document);
+  await loadConsole(document, {
+    fetch: routedFetch({
+      "/__beauticode/ui/status": () =>
+        okJson(
+          statusBody({
+            themeId: "i1",
+            themes: [{ id: "i1", name: "雨夜", type: "image", sourceMode: "local" }],
+          }),
+        ),
+    }),
+  });
+
+  navCell(document).click();
+  await flushAsync();
+
+  const page = pageEl(document);
+  assert.equal(page.querySelector(".bc-theme-toggle"), null, "the show/hide control is gone");
+  assert.equal(page.querySelector(".bc-theme-list").hidden, false);
+  assert.equal(
+    page.innerHTML.includes("SAVED"),
+    false,
+    "and its SAVED / NN label went with it",
+  );
+});
+
 test("console disables its controls and reports progress while busy", async () => {
   const document = createConsoleDocument();
   mountSettingsDialog(document);
