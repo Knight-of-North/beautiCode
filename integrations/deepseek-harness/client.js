@@ -151,10 +151,13 @@ html[data-bc-resolved-tone="light"][data-bc-active="true"]:has(#root [data-phase
 #beauticode-bg-stage{position:fixed;inset:0;z-index:0;overflow:hidden;pointer-events:none;background:#11141b}
 #beauticode-bg-stage::after{content:"";position:absolute;inset:0;z-index:3;background:transparent;pointer-events:none}
 html[data-bc-resolved-tone="light"] #beauticode-bg-stage{background:#f8fafc}
+/* The background shadow defaults to zero, so the wallpaper keeps its own
+   brightness until someone moves the 背景阴影 slider — that writes --bc-dim and
+   takes over through the data-bc-dim-user rules below. */
 html[data-bc-active="true"]:has(#root [data-phase="active"]) #beauticode-bg-stage::after,
-html[data-bc-active="true"]:has(#root [data-phase="settling"]) #beauticode-bg-stage::after{background:rgba(0,0,0,.42)}
+html[data-bc-active="true"]:has(#root [data-phase="settling"]) #beauticode-bg-stage::after{background:rgba(0,0,0,0)}
 html[data-bc-resolved-tone="light"][data-bc-active="true"]:has(#root [data-phase="active"]) #beauticode-bg-stage::after,
-html[data-bc-resolved-tone="light"][data-bc-active="true"]:has(#root [data-phase="settling"]) #beauticode-bg-stage::after{background:rgba(255,255,255,.22)}
+html[data-bc-resolved-tone="light"][data-bc-active="true"]:has(#root [data-phase="settling"]) #beauticode-bg-stage::after{background:rgba(255,255,255,0)}
 html[data-bc-dim-user="true"][data-bc-active="true"]:has(#root [data-phase="active"]) body,
 html[data-bc-dim-user="true"][data-bc-active="true"]:has(#root [data-phase="settling"]) body{
   --dsw-alias-bg-base:rgba(17,20,27,.10);

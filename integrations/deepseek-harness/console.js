@@ -117,10 +117,15 @@ div[role="dialog"][aria-modal="true"][data-bc-page="on"] nav button[aria-current
     "</div>" +
     '<div class="bc-control">' +
     '<span class="bc-slider">' +
-    '<input type="range" class="bc-dim-slider" min="0" max="100" step="1" value="42" aria-label="背景阴影"/>' +
+    '<input type="range" class="bc-dim-slider" min="0" max="100" step="1" value="0" aria-label="背景阴影"/>' +
     '<span class="bc-dim-value">自动</span>' +
     "</span>" +
-    '<button type="button" class="bc-btn bc-link" data-act="dim-reset" hidden>恢复默认</button>' +
+    '<button type="button" class="bc-dim-reset" data-act="dim-reset" aria-label="恢复默认" title="恢复默认">' +
+    '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">' +
+    '<path d="M13.2 10.4A5.6 5.6 0 1 1 12.9 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>' +
+    '<path d="M13.9 1.7 13.2 5.2l-3.5-.7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>' +
+    "</svg>" +
+    "</button>" +
     "</div></div>" +
     '<div class="bc-row"><div class="bc-row-text">' +
     '<span class="bc-row-title">声音</span>' +
@@ -167,7 +172,7 @@ div[role="dialog"][aria-modal="true"][data-bc-page="on"] nav button[aria-current
   const videoDescEl = page.querySelector('[data-copy="video"]');
   const imageBtn = page.querySelector('[data-act="image"]');
   const videoBtn = page.querySelector('[data-act="video"]');
-  const AUTO_DIM_PERCENT = 42;
+  const AUTO_DIM_PERCENT = 0;
   let busy = false;
   let muted = true;
   let currentThemeId = "";
@@ -183,18 +188,14 @@ div[role="dialog"][aria-modal="true"][data-bc-page="on"] nav button[aria-current
   let dialogEl = null;
   let pageActive = false;
 
+  // The shadow is always a real percentage: an untouched profile reads the same
+  // 0% the stylesheet falls back to, so the slider, the label and the veil can
+  // never disagree about which state the page is in.
   function renderDim() {
     const current = globalThis.BeauticodeBackgroundDim?.get?.() ?? null;
-    if (current == null) {
-      dimSlider.value = String(AUTO_DIM_PERCENT);
-      dimValue.textContent = "自动";
-      dimReset.hidden = true;
-      return;
-    }
-    const percent = Math.round(current * 100);
+    const percent = current == null ? AUTO_DIM_PERCENT : Math.round(current * 100);
     dimSlider.value = String(percent);
     dimValue.textContent = `${percent}%`;
-    dimReset.hidden = false;
   }
 
   function isOurs(node) {
@@ -737,7 +738,9 @@ div[role="dialog"][aria-modal="true"][data-bc-page="on"] nav button[aria-current
   });
   dimReset.addEventListener("click", (event) => {
     event.stopPropagation();
-    globalThis.BeauticodeBackgroundDim?.clear?.();
+    // Write the value the row means by "default" instead of dropping back to a
+    // separate auto state the slider cannot show.
+    globalThis.BeauticodeBackgroundDim?.set?.(AUTO_DIM_PERCENT / 100);
     renderDim();
   });
   renderDim();
