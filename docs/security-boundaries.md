@@ -17,7 +17,7 @@
    roots and valid legacy beautiCode roots are adopted automatically.
 6. **Content gates before serve/apply.**
    - Image: allowed extension, size cap, magic-byte sniff
-   - Video: `.mp4`, size cap, non-empty, real `ftyp` box, regular file
+   - Video: `.mp4` / `.mov`, size cap, non-empty, real `ftyp` box, regular file
 7. **Bounded network reads.** CDP `/json/*` and any local HTTP body used for
    control-plane decisions are length-capped before JSON parse.
 8. **Fail closed.** Missing CDP, failed verify, drifted media bytes, or broken

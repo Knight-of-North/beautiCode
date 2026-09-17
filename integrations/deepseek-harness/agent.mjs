@@ -275,7 +275,7 @@ export function createBeauticodeActions(dataRootOrOptions) {
       const inspected = await inspectLocalMedia(input.path);
       if (!inspected.ok) fail(inspected.error);
       if (inspected.kind !== "video") {
-        fail("beauticode_apply_video 只接受 .mp4 文件。");
+        fail("beauticode_apply_video 只接受 .mp4 / .mov 文件。");
       }
       const persistTheme = input?.persistTheme !== false;
       const themeName =

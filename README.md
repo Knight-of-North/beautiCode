@@ -28,7 +28,7 @@ beautiCode 是一个本地背景工具，**主要面向 DeepSeek Harness和Codex
 
 * 图片
 * 动态壁纸
-* MP4 视频
+* MP4 / MOV 视频
 * 番剧
 
 直接设成 DeepSeek Harness 网页背后的背景。
@@ -52,7 +52,7 @@ npx beauticode-dsh
 
 `npx beauticode-dsh` 会从 npm 下载插件并写入你的 DSH profile，**不需要 pnpm，也不需要再执行 `dsh plugin add`**。已把 `dsh` 装到 PATH 时，第二行也可以写成 `dsh web`。
 
-打开网页后，点开「设置」，左侧导航里的「背景」即可：可从文件夹选图片或 MP4、清除、开关声音、切换已保存主题，也可以进入全屏，把浏览器的标签页和地址栏收起来。已保存主题里自带「画窗」。网页控制台没有摸鱼。外观浅色/深色仍用 DSH 自己的设置。下次启动会恢复上次背景。
+打开网页后，点开「设置」，左侧导航里的「背景」即可：可从文件夹选图片或 MP4 / MOV、清除、开关声音、切换已保存主题，也可以进入全屏，把浏览器的标签页和地址栏收起来。已保存主题里自带「画窗」。网页控制台没有摸鱼。外观浅色/深色仍用 DSH 自己的设置。下次启动会恢复上次背景。
 
 也可以用 `/bg`、`/bg-theme`、`/bg-clear`，或直接跟 AI 说把本机图片/视频设成背景。
 
@@ -166,7 +166,7 @@ artifacts\windows\installer\
 * DeepSeek Harness（推荐）
 * Codex Desktop
 * JPG、JPEG、PNG、WebP 图片
-* MP4 视频
+* MP4 / MOV 视频
 
 
 ## 关于本地视频

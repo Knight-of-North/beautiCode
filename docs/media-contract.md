@@ -54,7 +54,7 @@ Rules:
 
 | Check | Rule |
 |---|---|
-| Extension | `.mp4` only |
+| Extension | `.mp4` / `.mov` |
 | Type | regular file after `lstat` + `realpath` |
 | Symlink / reparse | rejected |
 | Size | `1 byte … 800 MiB` |
@@ -93,6 +93,6 @@ origin allowlist, Range/206, re-stat + identity check per request.
 
 ## Non-goals
 
-- GIF/WebM/MOV
+- GIF/WebM
 - Streaming remote URLs as backgrounds
 - Theme ZIP packages (v1)

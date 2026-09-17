@@ -940,7 +940,7 @@ function Get-OpenPath {
   )
   $dlg = New-Object System.Windows.Forms.OpenFileDialog
   $dlg.Title = $Title
-  # No "All files" entry — image picker is image-only, video picker is MP4-only.
+  # No "All files" entry — image picker is image-only, video picker is MP4/MOV.
   $dlg.Filter = $Filter
   $dlg.FilterIndex = [Math]::Max(1, $FilterIndex)
   $dlg.CheckFileExists = $true
@@ -972,9 +972,14 @@ function Test-BcImageExt([string]$Path) {
   }
 }
 
-function Test-BcMp4Ext([string]$Path) {
+function Test-BcVideoExt([string]$Path) {
   $ext = [System.IO.Path]::GetExtension($Path)
-  return ($ext -and $ext.ToLowerInvariant() -eq ".mp4")
+  if (-not $ext) { return $false }
+  switch ($ext.ToLowerInvariant()) {
+    ".mp4" { return $true }
+    ".mov" { return $true }
+    default { return $false }
+  }
 }
 
 function Get-BcThemeName {
@@ -1373,9 +1378,9 @@ $L = @{
   PickImage      = (U "9009 62E9 0020 0062 0065 0061 0075 0074 0069 0043 006F 0064 0065 0020 80CC 666F 56FE") # 选择 beautiCode 背景图
   PickMp4        = (U "9009 62E9 0020 0062 0065 0061 0075 0074 0069 0043 006F 0064 0065 0020 89C6 9891 80CC 666F") # 选择 beautiCode 视频背景
   ImagesLabel    = (U "56FE 7247 6587 4EF6")                               # 图片文件
-  Mp4Label       = (U "004D 0050 0034 0020 89C6 9891")                     # MP4 视频
+  Mp4Label       = (U "004D 0050 0034 0020 002F 0020 004D 004F 0056 0020 89C6 9891") # MP4 / MOV 视频
   NeedImage      = (U "8BF7 9009 62E9 0020 002E 0070 006E 0067 002F 002E 006A 0070 0067 002F 002E 006A 0070 0065 0067 002F 002E 0077 0065 0062 0070 002F 002E 0061 0076 0069 0066 0020 56FE 7247 3002") # 请选择 .png/.jpg/.jpeg/.webp/.avif 图片。
-  NeedMp4        = (U "8BF7 9009 62E9 0020 002E 006D 0070 0034 0020 6587 4EF6 3002") # 请选择 .mp4 文件。
+  NeedMp4        = (U "8BF7 9009 62E9 0020 002E 006D 0070 0034 002F 002E 006D 006F 0076 0020 6587 4EF6 3002") # 请选择 .mp4/.mov 文件。
   ImgOk          = (U "80CC 666F 56FE 5DF2 66F4 65B0 3002")               # 背景图已更新。
   VidOk          = (U "89C6 9891 80CC 666F 5DF2 66F4 65B0 3002")         # 视频背景已更新。
   Cleared        = (U "80CC 666F 5DF2 6E05 9664 3002")                     # 背景已清除。
@@ -1760,9 +1765,9 @@ $notify.Icon = [System.Drawing.SystemIcons]::Application
 $menu = New-Object System.Windows.Forms.ContextMenuStrip
 $script:fallbackMenu = $menu
 
-# Image: common formats. Video: MP4 only (Dream Skin style — no "all files").
+# Image: common formats. Video: MP4/MOV (Dream Skin style — no "all files").
 $imgFilter = ("{0}|*.png;*.jpg;*.jpeg;*.webp;*.avif" -f $L.ImagesLabel)
-$vidFilter = ("{0}|*.mp4" -f $L.Mp4Label)
+$vidFilter = ("{0}|*.mp4;*.mov" -f $L.Mp4Label)
 
 function Rebuild-BcTrayMenu {
   $menu.Items.Clear()
@@ -1798,12 +1803,12 @@ function Rebuild-BcTrayMenu {
     }
   }
 
-  # Dream Skin style: single MP4 picker (poster optional / auto).
+  # Dream Skin style: single MP4/MOV picker (poster optional / auto).
   $null = Add-BcTrayItem -Items $menu.Items -Text $L.ChangeVideo -Enabled:(-not $opActive) -Name "video" -Action {
     Invoke-GuardedZh -Label $L.ChangeVideo -Action {
       $vid = Get-OpenPath -Title $L.PickMp4 -Filter $vidFilter -DefaultExt "mp4"
       if (-not $vid) { return }
-      if (-not (Test-BcMp4Ext -Path $vid)) {
+      if (-not (Test-BcVideoExt -Path $vid)) {
         Show-Tip -Title $L.AppName -Text $L.NeedMp4 -Icon Warning
         return
       }
@@ -2398,7 +2403,7 @@ function Update-BcTrayPanel {
   $isVideo = $statusText.Contains($L.MediaVideo)
   $isImage = $statusText.Contains($L.MediaImage)
   $script:bcMediaLabel.Text = if ($isVideo) {
-    "{0} · MP4" -f $L.MediaVideo
+    "{0} · MP4/MOV" -f $L.MediaVideo
   } elseif ($isImage) {
     "{0} · PNG/JPG" -f $L.MediaImage
   } else {
@@ -2410,9 +2415,9 @@ function Update-BcTrayPanel {
     "PNG · JPG · WEBP · AVIF"
   }
   $script:bcVideoCard.Meta.Text = if ($isVideo) {
-    "MP4 · {0}" -f $L.CurrentMedia
+    "MP4 / MOV · {0}" -f $L.CurrentMedia
   } else {
-    "MP4"
+    "MP4 / MOV"
   }
   $script:bcImageCard.Panel.BackColor = if ($isImage) { $script:bcUiColors.PanelSelected } else { $script:bcUiColors.Panel }
   $script:bcVideoCard.Panel.BackColor = if ($isVideo) { $script:bcUiColors.PanelSelected } else { $script:bcUiColors.Panel }
@@ -2714,7 +2719,7 @@ function Initialize-BcTrayPanel {
   $script:bcImageCard = Add-BcActionCard -Parent $body -Title $L.ChangeImage `
     -Meta "PNG · JPG · WEBP" -ActionName "image" -X 14 -Y 29 -Width 190
   $script:bcVideoCard = Add-BcActionCard -Parent $body -Title $L.ChangeVideo `
-    -Meta "MP4" -ActionName "video" -X 212 -Y 29 -Width 190
+    -Meta "MP4 / MOV" -ActionName "video" -X 212 -Y 29 -Width 190
 
   $clear = New-BcUiButton -Text $L.ClearCurrentBg -X 14 -Y 113 -Width 388 -Height 32 `
     -Font $script:bcMetaFont -BackColor $script:bcUiColors.DangerSurface `

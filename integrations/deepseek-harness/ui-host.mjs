@@ -11,6 +11,7 @@ import { createGalleryHandlers, resolveConfiguredSkinCenterUrl } from "./gallery
 import { hasLiveTray, resolveApplyBackend, stopInProcessSession } from "./host-apply.mjs";
 
 const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp", ".avif"]);
+const VIDEO_EXTENSIONS = new Set([".mp4", ".mov"]);
 const MAX_IMAGE_BYTES = 18 * 1024 * 1024;
 const MAX_VIDEO_BYTES = 800 * 1024 * 1024;
 const SELECTION_TTL_MS = 5 * 60 * 1000;
@@ -58,13 +59,13 @@ export function parseImportFilename(raw) {
     return { ok: false, error: "文件名无效。" };
   }
   const ext = path.extname(name).toLowerCase();
-  if (ext === ".mp4") {
+  if (VIDEO_EXTENSIONS.has(ext)) {
     return { ok: true, name, ext, kind: "video", maxBytes: MAX_VIDEO_BYTES };
   }
   if (IMAGE_EXTENSIONS.has(ext)) {
     return { ok: true, name, ext, kind: "image", maxBytes: MAX_IMAGE_BYTES };
   }
-  return { ok: false, error: "只支持图片（jpg / jpeg / png / webp / avif）或 MP4 视频。" };
+  return { ok: false, error: "只支持图片（jpg / jpeg / png / webp / avif）或 MP4 / MOV 视频。" };
 }
 
 export function parseImportThemeName(raw) {
@@ -114,11 +115,11 @@ function suggestedThemeName(fileName, fallback) {
 
 const IMAGE_FILTER =
   "Image Files (*.jpg;*.jpeg;*.png;*.webp;*.avif)|*.jpg;*.jpeg;*.png;*.webp;*.avif";
-const VIDEO_FILTER = "MP4 Video (*.mp4)|*.mp4";
+const VIDEO_FILTER = "Video (*.mp4;*.mov)|*.mp4;*.mov";
 // One dialog for the merged 导入背景 row: the combined entry first, then the two
 // narrower ones, so a Windows user can still filter to just pictures or video.
 const MEDIA_FILTER =
-  `Images and videos (*.jpg;*.jpeg;*.png;*.webp;*.avif;*.mp4)|*.jpg;*.jpeg;*.png;*.webp;*.avif;*.mp4|` +
+  `Images and videos (*.jpg;*.jpeg;*.png;*.webp;*.avif;*.mp4;*.mov)|*.jpg;*.jpeg;*.png;*.webp;*.avif;*.mp4;*.mov|` +
   `${IMAGE_FILTER}|${VIDEO_FILTER}`;
 
 /** Pick requests the host accepts: one media kind, or both at once. */

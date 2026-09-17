@@ -32,7 +32,7 @@ test("loopback media server: token, range, origin, identity drift", async () => 
     await fs.writeFile(invalidVideoPath, Buffer.from("not-an-mp4"));
     await assert.rejects(
       () => new MediaServerController().stage(invalidVideoPath),
-      /not a valid MP4 container/,
+      /not a valid MP4 or MOV container/,
     );
 
     const videoPath = path.join(root, "background.mp4");
@@ -279,6 +279,32 @@ test("media hub serves image + video with pair commit and query tokens", async (
     }
     assert.equal(cleared, true);
 
+    await media.close();
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("loopback media server stages QuickTime MOV as video/mp4", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "bc-media-mov-"));
+  try {
+    const fileTypeBox = Buffer.alloc(20);
+    fileTypeBox.writeUInt32BE(fileTypeBox.length, 0);
+    fileTypeBox.write("ftyp", 4, "ascii");
+    fileTypeBox.write("qt  ", 8, "ascii");
+    fileTypeBox.writeUInt32BE(0, 12);
+    fileTypeBox.write("qt  ", 16, "ascii");
+    const bytes = Buffer.concat([fileTypeBox, Buffer.from("MOV1", "ascii")]);
+    const videoPath = path.join(root, "clip.mov");
+    await fs.writeFile(videoPath, bytes);
+
+    const media = new MediaServerController();
+    const staged = await media.stage(videoPath);
+    await media.commit(staged);
+    const res = await fetch(staged.srcUrl);
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get("content-type"), "video/mp4");
+    assert.equal(Buffer.compare(Buffer.from(await res.arrayBuffer()), bytes), 0);
     await media.close();
   } finally {
     await fs.rm(root, { recursive: true, force: true });

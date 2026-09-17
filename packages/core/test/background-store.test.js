@@ -144,6 +144,42 @@ test("local image and video imports keep original paths without media copies", a
   }
 });
 
+test("local MOV imports keep the original path without renaming to mp4", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "bc-local-mov-"));
+  try {
+    const fixtures = path.join(root, "fixtures");
+    await fs.mkdir(fixtures);
+    const fileTypeBox = Buffer.alloc(20);
+    fileTypeBox.writeUInt32BE(fileTypeBox.length, 0);
+    fileTypeBox.write("ftyp", 4, "ascii");
+    fileTypeBox.write("qt  ", 8, "ascii");
+    fileTypeBox.writeUInt32BE(0, 12);
+    fileTypeBox.write("qt  ", 16, "ascii");
+    const videoPath = path.join(fixtures, "wallpaper.mov");
+    await fs.writeFile(
+      videoPath,
+      Buffer.concat([fileTypeBox, Buffer.from("MOVL", "ascii")]),
+    );
+    const realVideoPath = await fs.realpath(videoPath);
+    const store = new BackgroundStore({ root: path.join(root, "data") });
+    const manifest = await store.commitImport({
+      type: "video",
+      videoPath,
+      source: "local",
+    });
+    assert.equal(manifest.background?.source?.path, realVideoPath);
+    assert.equal(await store.activeVideoPath(), realVideoPath);
+    assert.equal(await store.prepareRuntimeVideo(manifest), realVideoPath);
+    const dataFiles = await fs.readdir(path.join(root, "data"), {
+      recursive: true,
+    });
+    assert.equal(dataFiles.some((name) => /\.mp4$/i.test(name)), false);
+    assert.equal(dataFiles.some((name) => /\.mov$/i.test(name)), false);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test("image import keeps Internal atmosphere and restores it from a saved theme", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "bc-atmosphere-"));
   const fixtures = path.join(root, "fixtures");

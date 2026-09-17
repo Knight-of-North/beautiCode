@@ -42,8 +42,14 @@ export const IMAGE_EXTENSIONS = Object.freeze([
   ".avif",
 ] as const);
 
+export const VIDEO_EXTENSIONS = Object.freeze([".mp4", ".mov"] as const);
+/** Managed/runtime copies keep this extension; local imports may be `.mov`. */
 export const VIDEO_EXTENSION = ".mp4";
 export const VIDEO_MIME = "video/mp4";
+
+export function isVideoExtension(ext: string): boolean {
+  return (VIDEO_EXTENSIONS as readonly string[]).includes(ext.toLowerCase());
+}
 
 export const ACTIVE_DIR_NAME = "active";
 export const STAGING_DIR_NAME = "staging";

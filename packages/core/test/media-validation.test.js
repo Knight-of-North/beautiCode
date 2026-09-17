@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { MAX_VIDEO_BYTES } from "../dist/constants.js";
+import { isVideoExtension, MAX_VIDEO_BYTES } from "../dist/constants.js";
 import { fileToDataUrl } from "../dist/apply-transaction.js";
 import {
   assertSafeBasename,
@@ -23,6 +23,16 @@ function mp4Fixture(marker = "AAAA") {
   fileTypeBox.writeUInt32BE(512, 12);
   fileTypeBox.write("isom", 16, "ascii");
   fileTypeBox.write("mp41", 20, "ascii");
+  return Buffer.concat([fileTypeBox, Buffer.from(marker, "ascii")]);
+}
+
+function movFixture(marker = "QT") {
+  const fileTypeBox = Buffer.alloc(20);
+  fileTypeBox.writeUInt32BE(fileTypeBox.length, 0);
+  fileTypeBox.write("ftyp", 4, "ascii");
+  fileTypeBox.write("qt  ", 8, "ascii");
+  fileTypeBox.writeUInt32BE(0, 12);
+  fileTypeBox.write("qt  ", 16, "ascii");
   return Buffer.concat([fileTypeBox, Buffer.from(marker, "ascii")]);
 }
 
@@ -48,6 +58,8 @@ function avifFixture() {
 test("isMp4Container accepts ftyp and rejects junk", () => {
   const ok = mp4Fixture();
   assert.equal(isMp4Container(ok, ok.length), true);
+  const mov = movFixture();
+  assert.equal(isMp4Container(mov, mov.length), true);
   assert.equal(isMp4Container(Buffer.from("not-an-mp4"), 10), false);
   assert.equal(isMp4Container(Buffer.alloc(8), 8), false);
 });
@@ -89,7 +101,18 @@ test("validateVideoFile enforces extension, size, ftyp, no symlink", async () =>
 
     const wrongExt = path.join(root, "clip.webm");
     await fs.writeFile(wrongExt, mp4Fixture());
-    await assert.rejects(() => validateVideoFile(wrongExt), /MP4/);
+    await assert.rejects(() => validateVideoFile(wrongExt), /MP4 or MOV/);
+
+    const mov = path.join(root, "clip.MOV");
+    await fs.writeFile(mov, movFixture("QT1"));
+    const validatedMov = await validateVideoFile(mov);
+    assert.equal(validatedMov.kind, "video");
+    const movDataUrl = await fileToDataUrl(mov);
+    assert.match(movDataUrl, /^data:video\/mp4;base64,/);
+
+    const junkMov = path.join(root, "junk.mov");
+    await fs.writeFile(junkMov, Buffer.from("not-a-mov"));
+    await assert.rejects(() => validateVideoFile(junkMov), /not a valid MP4 or MOV/);
 
     // symlink rejection when platform supports it
     if (process.platform !== "win32") {
@@ -144,6 +167,12 @@ test("validateImageFile checks magic bytes", async () => {
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
+});
+
+test("isVideoExtension accepts mp4 and mov", () => {
+  assert.equal(isVideoExtension(".mp4"), true);
+  assert.equal(isVideoExtension(".MOV"), true);
+  assert.equal(isVideoExtension(".webm"), false);
 });
 
 test("assertSafeBasename rejects traversal", () => {

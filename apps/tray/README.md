@@ -27,7 +27,7 @@ working area.
 | Status (disabled) | Running/busy + current media type (+ 摸鱼 when on); no CDP / generation |
 | Apply or re-apply | Ensure ChatGPT/Codex is running with loopback CDP; import the stored default (active) background |
 | Change image… | OpenFileDialog → image apply + live verify |
-| Change video… | MP4 dialog → video apply |
+| Change video… | MP4/MOV dialog → video apply |
 | Clear background | Clear + verify (also exits fish mode) |
 | Fish mode / Fish mode ✓ | Toggle 摸鱼: hide host content chrome, full-bleed media at native brightness. Same as `Ctrl+Shift+Space`. Refuses without an active background. |
 | Video sound / Video sound ✓ | Toggle background video audio. Default muted. Checked = sound on. Independent of fish mode. Not persisted. If unmute is blocked by autoplay policy, keeps playing muted and shows a tip. |

@@ -856,7 +856,7 @@ html[data-bc-fish="true"] #root{opacity:0!important;visibility:hidden!important;
     // already-set error keeps the settle phase from waiting out its full
     // budget on media that has already failed.
     if (video.error) {
-      return Promise.reject(new Error(describeVideoState(video, "MP4 加载或解码失败")));
+      return Promise.reject(new Error(describeVideoState(video, "视频加载或解码失败")));
     }
     return new Promise((resolve, reject) => {
       let settled = false;
@@ -865,7 +865,7 @@ html[data-bc-fish="true"] #root{opacity:0!important;visibility:hidden!important;
         if (video.readyState >= frameReadyState) done();
       };
       const failed = () => {
-        finish(new Error(describeVideoState(video, "MP4 加载或解码失败")));
+        finish(new Error(describeVideoState(video, "视频加载或解码失败")));
       };
       const aborted = () => {
         finish(signal?.aborted ? abortError() : new Error(describeVideoState(video, "视频加载已中止")));
