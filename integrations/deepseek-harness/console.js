@@ -117,7 +117,7 @@ div[role="dialog"][aria-modal="true"][data-bc-page="on"] nav button[aria-current
     "</div>" +
     '<div class="bc-control">' +
     '<span class="bc-slider">' +
-    '<input type="range" class="bc-dim-slider" min="0" max="100" step="1" value="42" aria-label="背景阴影"/>' +
+    '<input type="range" class="bc-dim-slider" min="0" max="100" step="1" value="0" aria-label="背景阴影"/>' +
     '<span class="bc-dim-value">自动</span>' +
     "</span>" +
     '<button type="button" class="bc-btn bc-link" data-act="dim-reset" hidden>恢复默认</button>' +
@@ -167,7 +167,7 @@ div[role="dialog"][aria-modal="true"][data-bc-page="on"] nav button[aria-current
   const videoDescEl = page.querySelector('[data-copy="video"]');
   const imageBtn = page.querySelector('[data-act="image"]');
   const videoBtn = page.querySelector('[data-act="video"]');
-  const AUTO_DIM_PERCENT = 42;
+  const AUTO_DIM_PERCENT = 0;
   let busy = false;
   let muted = true;
   let currentThemeId = "";

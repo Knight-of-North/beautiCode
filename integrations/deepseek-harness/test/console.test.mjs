@@ -533,6 +533,11 @@ test("console page includes a dim slider and restore-default control", async () 
   assert.ok(page.querySelector('[data-act="dim-reset"]'));
   assert.equal(page.querySelector(".bc-dim-value")?.textContent, "自动");
   assert.equal(page.querySelector('[data-act="dim-reset"]').hidden, true);
+  assert.equal(
+    page.querySelector(".bc-dim-slider")?.value,
+    "0",
+    "the background shadow ships at zero until someone moves the slider",
+  );
 });
 
 /**

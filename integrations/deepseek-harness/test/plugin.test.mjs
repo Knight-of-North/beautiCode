@@ -161,7 +161,11 @@ test("plugin injects its client script exactly once", async (t) => {
   assert.match(source, /:has\(#root \[data-phase="active"\]\)/);
   assert.match(source, /:has\(#root \[data-phase="settling"\]\)/);
   assert.doesNotMatch(source, /:has\(#root \[data-phase="hero"\]\)/);
-  assert.match(source, /#beauticode-bg-stage::after\{background:rgba\(0,0,0,\.42\)\}/);
+  assert.match(
+    source,
+    /#beauticode-bg-stage::after\{background:rgba\(0,0,0,0\)\}/,
+    "the background shadow defaults to zero",
+  );
   const dimUserStage = source.indexOf(
     'html[data-bc-dim-user="true"][data-bc-active="true"] #beauticode-bg-stage::after{background:rgba(0,0,0,var(--bc-dim))!important}',
   );
