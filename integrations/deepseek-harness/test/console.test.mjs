@@ -871,6 +871,58 @@ test("the page reports the applied state in exactly one place", async () => {
   assert.match(page.querySelector(".bc-msg").textContent, /背景服务没有响应/);
 });
 
+/**
+ * Saved backgrounds are listed the way Settings -> 模型 lists models: every entry
+ * is a card wrapped in a rounded outline, the source sits in a bordered tag,
+ * and the one in use carries the same small green state dot after its name.
+ */
+test("the saved list marks the background in use like a configured model", async () => {
+  const document = createConsoleDocument();
+  mountSettingsDialog(document);
+  const runtime = await loadConsole(document, {
+    fetch: routedFetch({
+      "/__beauticode/ui/status": () =>
+        okJson(
+          statusBody({
+            themeId: "t2",
+            themes: [
+              { id: "t1", name: "雨夜", sourceMode: "local" },
+              { id: "t2", name: "怪诞小镇", sourceMode: "managed" },
+            ],
+          }),
+        ),
+    }),
+  });
+
+  navCell(document).click();
+  await flushAsync();
+
+  const list = pageEl(document).querySelector(".bc-theme-list");
+  const markup = list.innerHTML;
+  assert.match(markup, /<span class="bc-theme-name">怪诞小镇<\/span>/);
+  assert.match(markup, /data-theme-id="t2"[^>]*aria-current="true"/);
+  assert.equal(
+    (markup.match(/bc-theme-dot/g) ?? []).length,
+    1,
+    "only the background in use carries the green dot",
+  );
+  assert.match(
+    markup,
+    /<span class="bc-theme-dot" role="img" aria-label="当前使用"/,
+    "and it says what it means for assistive tech",
+  );
+  assert.doesNotMatch(markup, /bc-theme-check/, "the check mark is not the shipped pattern");
+  // The card, the tag and the dot all take the shipped metrics.
+  assert.match(
+    runtime.source,
+    /\.bc-theme-row\{[^}]*border:\.5px solid var\(--dsw-alias-border-l4\)[^}]*border-radius:16px/,
+  );
+  assert.match(runtime.source, /\.bc-source\{[^}]*border:\.5px solid var\(--dsw-alias-border-l3\)/);
+  assert.match(
+    runtime.source,
+    /\.bc-theme-dot\{[^}]*width:8px;height:8px;background:var\(--dsw-alias-state-success-primary\)/,
+  );
+});
 test("console disables its controls and reports progress while busy", async () => {
   const document = createConsoleDocument();
   mountSettingsDialog(document);
