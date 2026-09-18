@@ -197,17 +197,13 @@ html[data-bc-fish="true"] #beauticode-bg-stage::after{background:transparent!imp
      - no backdrop-filter  -> no containing block, so settings dialog and every
                               fixed/absolute control keeps its position
      - no extra DOM node   -> nothing to stack, nothing to isolate
-     - transform:scale     -> hides the soft edges a blur leaves at the viewport
-                              border (blur samples outside the image)
 
-   The scale grows with the blur, but the ratio is computed in JS and published
-   as --bc-bg-scale: Chromium drops scale(calc(1 + var(--x))) outright (measured
-   transform:none), while scale(var(--x, 1)) applies. It is a paint-time
-   transform, so the element's box is unchanged and layout cannot move. */
+   The media is NOT scaled: an earlier revision grew it slightly to hide the soft
+   border a blur leaves at the viewport edge, but a growing picture is a worse
+   artefact than the soft edge, so the picture keeps its framing. */
 html[data-bc-bg-blur="true"] #beauticode-bg-stage .beauticode-media-slot img,
 html[data-bc-bg-blur="true"] #beauticode-bg-stage .beauticode-media-slot video{
   filter:blur(var(--bc-bg-blur,0px));
-  transform:scale(var(--bc-bg-scale, 1));
 }
 @media (prefers-reduced-motion:reduce){#beauticode-bg-stage .beauticode-media-slot,#beauticode-bg-stage .beauticode-media-slot img,#beauticode-bg-stage .beauticode-media-slot video{transition:none!important}}
 html[data-bc-active="true"] #root{position:relative;z-index:1;background:transparent!important}
@@ -295,8 +291,9 @@ html[data-bc-fish="true"] #root{opacity:0!important;visibility:hidden!important;
   // matches at all", which is exactly the previous appearance.
   // ---------------------------------------------------------------------------
   const BG_BLUR_KEY = "beauticode-bg-blur";
-  // 100% maps to this radius; the slider is the user's knob.
-  const BG_BLUR_MAX_PX = 30;
+  // 100% on the slider maps to this radius. Chosen from the rendered result:
+  // the previous 30px cap was already heavy at 30%, so 9px is the new ceiling.
+  const BG_BLUR_MAX_PX = 9;
   let bgBlurPercent = 0;
 
   function clampBlurPercent(value) {
@@ -314,9 +311,6 @@ html[data-bc-fish="true"] #root{opacity:0!important;visibility:hidden!important;
       : null;
     const px = (bgBlurPercent / 100) * BG_BLUR_MAX_PX;
     setVar?.("--bc-bg-blur", `${px.toFixed(2)}px`);
-    // 1 + radius/100 keeps the scaled media covering the soft border a blur
-    // leaves behind, and grows with the radius.
-    setVar?.("--bc-bg-scale", (1 + px / 100).toFixed(4));
     if (bgBlurPercent > 0) root.dataset.bcBgBlur = "true";
     else if (root.dataset) delete root.dataset.bcBgBlur;
   }
