@@ -191,6 +191,24 @@ html[data-bc-fish="true"] #beauticode-bg-stage::after{background:transparent!imp
 #beauticode-bg-stage .beauticode-media-slot video{z-index:1;opacity:1}
 #beauticode-bg-stage .beauticode-media-slot[data-bc-video-ready="true"] img{opacity:0}
 #beauticode-bg-stage .beauticode-media-slot[data-bc-video-ready="true"] video{opacity:1}
+/* Background blur (磨砂). Applied to the background media element itself with a
+   plain CSS filter, never to the stage or the app:
+
+     - no backdrop-filter  -> no containing block, so settings dialog and every
+                              fixed/absolute control keeps its position
+     - no extra DOM node   -> nothing to stack, nothing to isolate
+     - transform:scale     -> hides the soft edges a blur leaves at the viewport
+                              border (blur samples outside the image)
+
+   The scale grows with the blur, but the ratio is computed in JS and published
+   as --bc-bg-scale: Chromium drops scale(calc(1 + var(--x))) outright (measured
+   transform:none), while scale(var(--x, 1)) applies. It is a paint-time
+   transform, so the element's box is unchanged and layout cannot move. */
+html[data-bc-bg-blur="true"] #beauticode-bg-stage .beauticode-media-slot img,
+html[data-bc-bg-blur="true"] #beauticode-bg-stage .beauticode-media-slot video{
+  filter:blur(var(--bc-bg-blur,0px));
+  transform:scale(var(--bc-bg-scale, 1));
+}
 @media (prefers-reduced-motion:reduce){#beauticode-bg-stage .beauticode-media-slot,#beauticode-bg-stage .beauticode-media-slot img,#beauticode-bg-stage .beauticode-media-slot video{transition:none!important}}
 html[data-bc-active="true"] #root{position:relative;z-index:1;background:transparent!important}
 html[data-bc-active="true"] [class*="_fade"]{display:none!important}
@@ -266,6 +284,72 @@ html[data-bc-fish="true"] #root{opacity:0!important;visibility:hidden!important;
     set: setUserDim,
     clear: clearUserDim,
   };
+
+
+  // ---------------------------------------------------------------------------
+  // Background blur (磨砂程度, 0-100%).
+  //
+  // Publishes a percentage and writes two things on <html>: the --bc-bg-blur
+  // length the stylesheet applies to the media, and a data attribute so the rule
+  // only matches while the value is above zero. 0% therefore means "no rule
+  // matches at all", which is exactly the previous appearance.
+  // ---------------------------------------------------------------------------
+  const BG_BLUR_KEY = "beauticode-bg-blur";
+  // 100% maps to this radius; the slider is the user's knob.
+  const BG_BLUR_MAX_PX = 30;
+  let bgBlurPercent = 0;
+
+  function clampBlurPercent(value) {
+    if (value == null || value === "") return null;
+    const n = Number(value);
+    if (!Number.isFinite(n)) return null;
+    return Math.min(100, Math.max(0, Math.round(n)));
+  }
+
+  function applyBgBlur() {
+    const root = document.documentElement;
+    if (!root?.dataset || !root.style) return;
+    const setVar = typeof root.style.setProperty === "function"
+      ? root.style.setProperty.bind(root.style)
+      : null;
+    const px = (bgBlurPercent / 100) * BG_BLUR_MAX_PX;
+    setVar?.("--bc-bg-blur", `${px.toFixed(2)}px`);
+    // 1 + radius/100 keeps the scaled media covering the soft border a blur
+    // leaves behind, and grows with the radius.
+    setVar?.("--bc-bg-scale", (1 + px / 100).toFixed(4));
+    if (bgBlurPercent > 0) root.dataset.bcBgBlur = "true";
+    else if (root.dataset) delete root.dataset.bcBgBlur;
+  }
+
+  function getBgBlur() {
+    return bgBlurPercent;
+  }
+
+  function setBgBlur(value) {
+    const percent = clampBlurPercent(value);
+    if (percent == null) return bgBlurPercent;
+    bgBlurPercent = percent;
+    try {
+      globalThis.localStorage?.setItem(BG_BLUR_KEY, String(percent));
+    } catch {
+      /* private mode / quota */
+    }
+    applyBgBlur();
+    return percent;
+  }
+
+  try {
+    const stored = clampBlurPercent(globalThis.localStorage?.getItem(BG_BLUR_KEY));
+    if (stored != null) bgBlurPercent = stored;
+  } catch {
+    /* private mode */
+  }
+  globalThis.BeauticodeBackgroundBlur = { get: getBgBlur, set: setBgBlur };
+  try {
+    applyBgBlur();
+  } catch {
+    /* a cosmetic extra must never take the background down with it */
+  }
 
   // Chromium builds its media stack lazily; the first <video> of a fresh
   // profile pays decoder/GPU/audio init inside the first import's verify
