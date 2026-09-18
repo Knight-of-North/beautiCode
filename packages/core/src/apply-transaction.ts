@@ -4,7 +4,7 @@ import {
   BackgroundStore,
   type BackgroundSnapshot,
 } from "./background-store.js";
-import { MAX_INLINE_DATA_URL_BYTES } from "./constants.js";
+import { isVideoExtension, MAX_INLINE_DATA_URL_BYTES } from "./constants.js";
 import {
   MediaServerController,
   type MediaAssetHandle,
@@ -489,6 +489,7 @@ const MIME_BY_EXT: Record<string, string> = {
   ".webp": "image/webp",
   ".avif": "image/avif",
   ".mp4": "video/mp4",
+  ".mov": "video/mp4",
 };
 
 /** Embed a local media file as a CSP-safe data: URL for host inject. */
@@ -504,7 +505,7 @@ export async function fileToDataUrl(
   }
   const ext = path.extname(filePath).toLowerCase();
   const detectedImage =
-    !mimeOverride && ext !== ".mp4"
+    !mimeOverride && !isVideoExtension(ext)
       ? detectImageMime(bytes.subarray(0, 64), ext, bytes.byteLength)
       : null;
   const mime = mimeOverride ?? detectedImage?.mime ?? MIME_BY_EXT[ext];

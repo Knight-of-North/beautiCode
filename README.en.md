@@ -27,7 +27,7 @@ It does not bundle, install, or start DSH. Install DeepSeek Harness yourself and
 
 * Images
 * Live wallpapers
-* MP4 videos
+* MP4 / MOV videos
 * Anime
 
 It does not turn the work window into a player. The picture stays quietly behind the chat and workspace.
@@ -49,7 +49,7 @@ npx beauticode-dsh
 
 `npx beauticode-dsh` downloads the plugin from npm and writes it into your DSH profile. **pnpm is not required, and you do not need to run `dsh plugin add`.** If `dsh` is on your PATH, you can start the page with `dsh web`.
 
-On the page, open **Settings** and pick **Background** from its left-hand nav. Pick an image or MP4 from a folder, clear the background, toggle sound, switch saved themes, or go fullscreen to put the browser's tab strip and address bar away. Saved themes include the built-in Gallery window. The web console does not include fish mode. Light and dark appearance still follow DSH’s own setting. The last background is restored on the next start.
+On the page, open **Settings** and pick **Background** from its left-hand nav. Pick an image or MP4/MOV from a folder, clear the background, toggle sound, switch saved themes, or go fullscreen to put the browser's tab strip and address bar away. Saved themes include the built-in Gallery window. The web console does not include fish mode. Light and dark appearance still follow DSH’s own setting. The last background is restored on the next start.
 
 You can also use `/bg`, `/bg-theme`, `/bg-clear`, or just ask the AI to set a local image or video as the background.
 
@@ -163,7 +163,7 @@ Currently supported:
 * DeepSeek Harness (recommended)
 * Codex Desktop
 * JPG, JPEG, PNG, and WebP images
-* MP4 video
+* MP4 / MOV video
 
 
 ## About local video

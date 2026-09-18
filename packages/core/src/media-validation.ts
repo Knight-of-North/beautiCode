@@ -5,7 +5,7 @@ import {
   IMAGE_EXTENSIONS,
   MAX_IMAGE_BYTES,
   MAX_VIDEO_BYTES,
-  VIDEO_EXTENSION,
+  isVideoExtension,
 } from "./constants.js";
 import type { ValidatedImage, ValidatedVideo } from "./types.js";
 
@@ -75,6 +75,10 @@ async function assertNoSymbolicLinkSegments(filePath: string): Promise<void> {
   }
 }
 
+/**
+ * ISO-BMFF / QuickTime with an `ftyp` box. Covers `.mp4` and modern `.mov`
+ * (Apple brand `qt  `). Classic QuickTime without `ftyp` is rejected.
+ */
 export function isMp4Container(
   bytes: Uint8Array,
   totalSize: number = bytes?.byteLength ?? 0,
@@ -264,19 +268,19 @@ export async function validateVideoFile(
 ): Promise<ValidatedVideo> {
   const maxBytes = opts.maxBytes ?? MAX_VIDEO_BYTES;
   const ext = path.extname(filePath).toLowerCase();
-  if (ext !== VIDEO_EXTENSION) {
-    throw new MediaValidationError("Video backgrounds must use an MP4 file.");
+  if (!isVideoExtension(ext)) {
+    throw new MediaValidationError("Video backgrounds must use an MP4 or MOV file.");
   }
   const { resolved, size } = await assertRegularFile(filePath);
   if (size < 1 || size > maxBytes) {
     throw new MediaValidationError(
-      `Video background must be a non-empty MP4 no larger than ${maxBytes} bytes.`,
+      `Video background must be a non-empty MP4 or MOV no larger than ${maxBytes} bytes.`,
     );
   }
   const inspected = await inspectAndHash(resolved, size, opts.mode);
   if (!isMp4Container(inspected.head, size)) {
     throw new MediaValidationError(
-      "Video background is not a valid MP4 container.",
+      "Video background is not a valid MP4 or MOV container.",
     );
   }
   return {

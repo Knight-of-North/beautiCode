@@ -14,6 +14,7 @@ export const TRAY_MISSING_MESSAGE =
 export const TRAY_STARTING_MESSAGE = "beautiCode 托盘正在启动，请稍后再试。";
 
 const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp", ".avif"]);
+const VIDEO_EXTENSIONS = new Set([".mp4", ".mov"]);
 const TOKEN_MIN_LENGTH = 24;
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
 
@@ -159,11 +160,11 @@ export async function inspectLocalMedia(filePath) {
     return { ok: false, error: `找不到文件：${resolved}。请使用本机绝对路径。` };
   }
   const ext = path.extname(resolved).toLowerCase();
-  if (ext === ".mp4") return { ok: true, kind: "video", path: resolved };
+  if (VIDEO_EXTENSIONS.has(ext)) return { ok: true, kind: "video", path: resolved };
   if (IMAGE_EXTENSIONS.has(ext)) return { ok: true, kind: "image", path: resolved };
   return {
     ok: false,
-    error: "只支持图片（jpg / jpeg / png / webp / avif）或 MP4 视频。",
+    error: "只支持图片（jpg / jpeg / png / webp / avif）或 MP4 / MOV 视频。",
   };
 }
 

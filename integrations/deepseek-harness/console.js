@@ -15,8 +15,8 @@
   // mainstream browser filters by it and still reports the picked file's own
   // name, which is what decides image vs video on the host.
   const MEDIA_ACCEPT =
-    ".jpg,.jpeg,.png,.webp,.avif,.mp4," +
-    "image/jpeg,image/png,image/webp,image/avif,video/mp4";
+    ".jpg,.jpeg,.png,.webp,.avif,.mp4,.mov," +
+    "image/jpeg,image/png,image/webp,image/avif,video/mp4,video/quicktime";
 
   const style = document.createElement("style");
   style.dataset.beauticodeConsole = "true";
@@ -149,7 +149,7 @@ div[role="dialog"][aria-modal="true"][data-bc-page="on"] nav button[aria-current
     '<div class="bc-group">' +
     '<div class="bc-row"><div class="bc-row-text">' +
     '<span class="bc-row-title">导入背景</span>' +
-    '<span class="bc-row-desc" data-desc="media">支持常见图片格式和 MP4 视频</span>' +
+    '<span class="bc-row-desc" data-desc="media">支持常见图片格式和 MP4 / MOV 视频</span>' +
     "</div>" +
     '<div class="bc-control"><button type="button" class="bc-btn bc-pill" data-act="media">选择文件</button></div></div>' +
     "</div>" +

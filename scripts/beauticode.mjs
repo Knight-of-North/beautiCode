@@ -30,6 +30,7 @@ const {
   BackgroundStore,
   MediaServerController,
   defaultDataRoot,
+  isVideoExtension,
   toChineseErrorMessage,
 } = await import(coreEntry);
 
@@ -47,13 +48,13 @@ Setup / discovery (loopback only):
 
 Offline (atomic store + media validation only):
   npm run bc -- apply-image <image>
-  npm run bc -- apply-video <video.mp4> [optional-poster]
+  npm run bc -- apply-video <video.mp4|.mov> [optional-poster]
   npm run bc -- clear
   npm run bc -- status
 
 Live Codex CDP (inject + live verify + rollback):
   npm run bc -- apply-image <image> --port <cdpPort>
-  npm run bc -- apply-video <video.mp4> [optional-poster] --port <cdpPort>
+  npm run bc -- apply-video <video.mp4|.mov> [optional-poster] --port <cdpPort>
   npm run bc -- clear --port <cdpPort>
   npm run bc -- watch --port <cdpPort>
   npm run bc -- apply-image <image> --discover   # auto-pick best loopback CDP
@@ -344,29 +345,29 @@ async function main() {
       return;
     }
     // Dream-Skin style: video-only is enough. Optional poster as 2nd arg.
-    // Legacy form `apply-video <image> <video.mp4>` still works when the first
-    // arg is an image and the second is .mp4.
+    // Legacy form `apply-video <image> <video>` still works when the first
+    // arg is an image and the second is .mp4/.mov.
     const aPath = path.resolve(a);
     const bPath = b ? path.resolve(b) : null;
-    const aIsMp4 = path.extname(aPath).toLowerCase() === ".mp4";
-    const bIsMp4 = bPath
-      ? path.extname(bPath).toLowerCase() === ".mp4"
+    const aIsVideo = isVideoExtension(path.extname(aPath));
+    const bIsVideo = bPath
+      ? isVideoExtension(path.extname(bPath))
       : false;
-    if (aIsMp4 && !bIsMp4) {
+    if (aIsVideo && !bIsVideo) {
       input = { type: "video", videoPath: aPath, source: "local" };
       if (bPath) input.imagePath = bPath;
-    } else if (bIsMp4) {
+    } else if (bIsVideo) {
       input = {
         type: "video",
         imagePath: aPath,
         videoPath: bPath,
         source: "local",
       };
-    } else if (aIsMp4) {
+    } else if (aIsVideo) {
       input = { type: "video", videoPath: aPath, source: "local" };
     } else {
       console.error(
-        "apply-video 需要 <video.mp4> [poster]（或旧格式 <poster> <video.mp4>）。",
+        "apply-video 需要 <video.mp4|.mov> [poster]（或旧格式 <poster> <video.mp4|.mov>）。",
       );
       finish(1);
       return;

@@ -782,7 +782,7 @@ test("console descriptions stay plain and free of host detail", async () => {
   const markup = pageEl(document).innerHTML;
   for (const line of [
     "给 DSH 换一张背景图或视频。",
-    "支持常见图片格式和 MP4 视频",
+    "支持常见图片格式和 MP4 / MOV 视频",
     "隐藏浏览器标签页和地址栏，Esc 退出",
     "压暗背景，让内容更清楚",
     "播放视频背景的声音",

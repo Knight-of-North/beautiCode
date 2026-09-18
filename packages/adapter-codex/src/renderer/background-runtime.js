@@ -1197,13 +1197,36 @@
     return null;
   };
 
+  const VIDEO_ACCEPT = "video/mp4,video/quicktime,.mp4,.mov";
+
+  const playbackVideoFile = (file) => {
+    if (!file) return file;
+    const type = String(file.type || "").toLowerCase();
+    const name = String(file.name || "").toLowerCase();
+    if (type === "video/mp4") return file;
+    if (type === "video/quicktime" || name.endsWith(".mov")) {
+      try {
+        return new File([file], file.name, {
+          type: "video/mp4",
+          lastModified: file.lastModified,
+        });
+      } catch (_) {
+        return file;
+      }
+    }
+    return file;
+  };
+
   const createVideoInput = () => {
     let input = document.getElementById(VIDEO_INPUT_ID);
-    if (input) return input;
+    if (input) {
+      input.accept = VIDEO_ACCEPT;
+      return input;
+    }
     input = document.createElement("input");
     input.type = "file";
     input.id = VIDEO_INPUT_ID;
-    input.accept = "video/mp4,.mp4";
+    input.accept = VIDEO_ACCEPT;
     input.tabIndex = -1;
     input.setAttribute("aria-hidden", "true");
     Object.assign(input.style, {
@@ -1503,7 +1526,7 @@
       video = createVideoElement(stage);
     }
     try {
-      const objectUrl = URL.createObjectURL(file);
+      const objectUrl = URL.createObjectURL(playbackVideoFile(file));
       return await playVideoObjectUrl(video, objectUrl);
     } catch (err) {
       if (isTransientVideoError(err, videoEl) && retryTransientVideo()) {

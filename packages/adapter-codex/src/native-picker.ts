@@ -17,7 +17,7 @@ function pickerUnavailable(message: string): Error & { code: string } {
 function buildWindowsPickerScript(kind: "image" | "video"): string {
   const filter =
     kind === "video"
-      ? "MP4 Video (*.mp4)|*.mp4"
+      ? "Video (*.mp4;*.mov)|*.mp4;*.mov"
       : "Image Files (*.jpg;*.jpeg;*.png;*.webp;*.avif)|*.jpg;*.jpeg;*.png;*.webp;*.avif";
   return [
     "$ErrorActionPreference = 'Stop'",

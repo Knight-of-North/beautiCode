@@ -12,7 +12,7 @@ import {
   MEDIA_TOKEN_HEADER,
   MEDIA_TOKEN_HEADER_CANON,
   TRUSTED_ORIGIN_PREFIXES,
-  VIDEO_EXTENSION,
+  isVideoExtension,
   VIDEO_MIME,
 } from "./constants.js";
 import {
@@ -247,7 +247,7 @@ export class LoopbackMediaHub {
       mtimeMs = v.mtimeMs;
       ctimeMs = v.ctimeMs;
       resolved = v.filePath;
-    } else if (ext === VIDEO_EXTENSION) {
+    } else if (isVideoExtension(ext)) {
       const v = await validateVideoFile(filePath, {
         maxBytes: this.maxVideoBytes,
         mode: validation,

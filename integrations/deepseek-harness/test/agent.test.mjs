@@ -125,13 +125,16 @@ test("inspectLocalMedia requires an absolute regular file", async (t) => {
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const image = path.join(root, "poster.png");
   const video = path.join(root, "clip.mp4");
+  const mov = path.join(root, "wallpaper.mov");
   await fs.writeFile(image, PNG_1X1);
   await fs.writeFile(video, mp4Fixture());
+  await fs.writeFile(mov, mp4Fixture("MOV"));
   await fs.writeFile(path.join(root, "notes.txt"), "nope");
 
   assert.equal((await inspectLocalMedia("relative.mp4")).ok, false);
   assert.equal((await inspectLocalMedia(image)).kind, "image");
   assert.equal((await inspectLocalMedia(`"${video}"`)).kind, "video");
+  assert.equal((await inspectLocalMedia(mov)).kind, "video");
   assert.match((await inspectLocalMedia(path.join(root, "missing.mp4"))).error, /找不到文件/);
   assert.match((await inspectLocalMedia(path.join(root, "notes.txt"))).error ?? "", /只支持/);
 });
@@ -275,7 +278,7 @@ test("tools and slash commands reuse the tray apply routes", async (t) => {
 
   await assert.rejects(
     () => actions.applyVideo({ path: image }),
-    /只接受 \.mp4/,
+    /只接受 \.mp4 \/ \.mov/,
   );
 });
 

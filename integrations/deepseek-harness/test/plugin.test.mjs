@@ -2151,7 +2151,7 @@ test("browser client warms the media stack on init and reports media-event diagn
   );
   assert.equal(failure.ok, true, "a settle failure must never roll back the poster");
   assert.equal(failure.visible, true);
-  assert.match(failure.error, /视频预热未完成（已保留封面）：MP4 加载或解码失败/);
+  assert.match(failure.error, /视频预热未完成（已保留封面）：视频加载或解码失败/);
   assert.match(failure.error, /媒体事件=loadstart@\d+ms/);
   assert.match(failure.error, /，progress@\d+ms/);
   assert.match(failure.error, /，error@\d+ms/);

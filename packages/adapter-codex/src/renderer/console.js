@@ -1,6 +1,6 @@
 (() => {
   "use strict";
-  const CONSOLE_REV = 3;
+  const CONSOLE_REV = 4;
   if (window.__beauticodeConsoleRev === CONSOLE_REV && window.__beauticodeConsoleLoaded) {
     try {
       window.__beauticodeConsolePlace?.();
@@ -22,7 +22,7 @@
   window.__beauticodeGalleryLoaded = false;
 
   const IMAGE_ACCEPT = ".jpg,.jpeg,.png,.webp,.avif,image/jpeg,image/png,image/webp,image/avif";
-  const VIDEO_ACCEPT = ".mp4,video/mp4";
+  const VIDEO_ACCEPT = ".mp4,.mov,video/mp4,video/quicktime";
 
   const style = document.createElement("style");
   style.dataset.beauticodeConsole = "true";
@@ -102,7 +102,7 @@ body:not([data-ds-dark-theme]) #beauticode-console-pop{background:#f3f0e9;color:
   pop.innerHTML =
     '<header class="bc-head"><h2 class="bc-title">背景清单</h2><span class="bc-status">未就绪</span></header>' +
     '<button type="button" class="bc-btn bc-import" data-act="image"><span class="bc-index">01</span><span class="bc-import-copy"><strong>导入图片</strong><small>直接引用本地文件</small></span><span class="bc-arrow">→</span></button>' +
-    '<button type="button" class="bc-btn bc-import" data-act="video"><span class="bc-index">02</span><span class="bc-import-copy"><strong>导入视频</strong><small>MP4 · 零复制播放</small></span><span class="bc-arrow">→</span></button>' +
+    '<button type="button" class="bc-btn bc-import" data-act="video"><span class="bc-index">02</span><span class="bc-import-copy"><strong>导入视频</strong><small>MP4 / MOV · 零复制播放</small></span><span class="bc-arrow">→</span></button>' +
     '<div class="bc-controls">' +
     '<button type="button" class="bc-btn bc-link" data-act="sound">声音已关</button>' +
     '<button type="button" class="bc-btn bc-link" data-act="clear">清除背景</button>' +

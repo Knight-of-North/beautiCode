@@ -70,9 +70,10 @@ async function createPluginServer(tokenFile, config = {}) {
   };
 }
 
-test("parseImportFilename accepts images and mp4 only", () => {
+test("parseImportFilename accepts images, mp4, and mov", () => {
   assert.equal(parseImportFilename("雨夜.png").kind, "image");
   assert.equal(parseImportFilename("C:\\\\films\\\\clip.MP4").kind, "video");
+  assert.equal(parseImportFilename("C:\\\\films\\\\wallpaper.MOV").kind, "video");
   assert.equal(parseImportFilename("..\\\\evil.txt").ok, false);
   assert.match(parseImportFilename("").error, /缺少文件名/);
 });
@@ -120,7 +121,7 @@ test("plugin injects the console script that joins the settings dialog", async (
   assert.match(source, /importPolicyReady/);
   // The row describes what it does; how the host stores the file is not the
   // user's problem, so no policy wording reaches the served page.
-  assert.match(source, /支持常见图片格式和 MP4 视频/);
+  assert.match(source, /支持常见图片格式和 MP4 \/ MOV 视频/);
   assert.match(source, /data-act="media"/);
   assert.doesNotMatch(source, /零复制播放/);
   assert.doesNotMatch(source, /直接引用本地文件/);
