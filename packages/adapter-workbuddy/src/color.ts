@@ -30,7 +30,17 @@ export function parseColorAlpha(value: string | null | undefined): number | null
   const fn = COLOR_FN_RE.exec(v);
   if (fn) return fn[1] === undefined ? 1 : Number(fn[1]);
 
-  if (HEX_RE.test(v)) return 1;
+  if (HEX_RE.test(v)) {
+    const hex = v.slice(1);
+    if (hex.length === 4) {
+      const alphaNibble = hex.charAt(3);
+      return parseInt(alphaNibble + alphaNibble, 16) / 255;
+    }
+    if (hex.length === 8) {
+      return parseInt(hex.slice(6, 8), 16) / 255;
+    }
+    return 1;
+  }
   if (v.startsWith("hsl(") || v.startsWith("hsla(")) return 1;
 
   // var(...) and anything else: unknown

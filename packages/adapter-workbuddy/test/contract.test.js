@@ -16,6 +16,7 @@ import {
   SURFACE_BASE_VAR,
   SURFACE_RULES,
   WORKBUDDY_HOST_DESCRIPTOR,
+  BACKGROUND_BAR_INJECTION,
   assertLoopbackDebuggerUrl,
   buildContractCss,
   isWorkBuddyPageUrl,
@@ -29,12 +30,18 @@ const REAL_PAGE_URL =
   "file:///Applications/WorkBuddy.app/Contents/Resources/app.asar/renderer/index.html" +
   "?locale=zh-CN&accountSnapshot=%7B%22version%22%3A1%7D";
 
-test("descriptor advertises every capability the CDP route can honour", () => {
+test("descriptor advertises the capabilities this runner actually honours", () => {
   assert.equal(WORKBUDDY_HOST_DESCRIPTOR.kind, "workbuddy");
   assert.equal(WORKBUDDY_HOST_DESCRIPTOR.displayName, "WorkBuddy");
-  for (const [key, value] of Object.entries(WORKBUDDY_HOST_DESCRIPTOR.capabilities)) {
-    assert.equal(value, true, `capability ${key} should be true`);
-  }
+  const caps = WORKBUDDY_HOST_DESCRIPTOR.capabilities;
+  assert.equal(caps.image, true);
+  assert.equal(caps.video, true);
+  assert.equal(caps.clear, true);
+  assert.equal(caps.reapply, true);
+  assert.equal(caps.muted, true);
+  assert.equal(caps.tone, true);
+  assert.equal(caps.fish, false);
+  assert.equal(caps.savedThemes, false);
 });
 
 test("target matching ignores the query string but keeps scheme and path", () => {
@@ -91,6 +98,11 @@ test("debugger urls are pinned to loopback and the expected port", () => {
   assert.throws(() => assertLoopbackDebuggerUrl("ws://10.0.0.5:9335/x", 9335), /loopback/);
   assert.throws(() => assertLoopbackDebuggerUrl("ws://0.0.0.0:9335/x", 9335), /loopback/);
   assert.throws(() => assertLoopbackDebuggerUrl("ws://127.0.0.1:9222/x", 9335), /port/);
+  assert.throws(() => assertLoopbackDebuggerUrl("ws://127.0.0.1/devtools/page/C", 9335), /port/);
+  assert.equal(
+    assertLoopbackDebuggerUrl("ws://[::1]:9335/devtools/page/C", 9335),
+    "ws://[::1]:9335/devtools/page/C",
+  );
   assert.throws(() => assertLoopbackDebuggerUrl("http://127.0.0.1:9335/x", 9335), /ws:\/\//);
   assert.throws(() => assertLoopbackDebuggerUrl("garbage", 9335), /valid URL/);
 });
@@ -206,4 +218,11 @@ test("contract anchors and attributes stay in sync with the self-check", () => {
   }
   assert.ok(CONTRACT_ATTRIBUTES.includes("data-bc-active"));
   assert.ok(CONTRACT_ATTRIBUTES.includes("data-bc-video-ready"));
+});
+
+test("injected payload uses live stage lookup and does not HTML-concat skin names", () => {
+  assert.match(BACKGROUND_BAR_INJECTION, /stageEl\(\)\.querySelector\('video\.bc-media'\)/);
+  assert.doesNotMatch(BACKGROUND_BAR_INJECTION, /galGrid\.innerHTML = list\.map/);
+  assert.match(BACKGROUND_BAR_INJECTION, /__BC_GALLERY_TOKEN__/);
+  assert.match(BACKGROUND_BAR_INJECTION, /method: 'POST'/);
 });

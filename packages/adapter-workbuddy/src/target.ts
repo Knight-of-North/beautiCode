@@ -82,11 +82,16 @@ export function assertLoopbackDebuggerUrl(rawUrl: string, port: number): string 
   if (parsed.protocol !== "ws:") {
     throw new Error("CDP debugger url must use ws:// on loopback.");
   }
-  const host = parsed.hostname;
-  if (host !== "127.0.0.1" && host !== "localhost" && host !== "[::1]") {
+  const host = parsed.hostname.replace(/^\[|\]$/g, "");
+  if (host !== "127.0.0.1" && host !== "localhost" && host !== "::1") {
     throw new Error("Rejected a CDP WebSocket url outside loopback.");
   }
-  if (parsed.port && Number(parsed.port) !== port) {
+  const effectivePort = parsed.port
+    ? Number(parsed.port)
+    : parsed.protocol === "ws:"
+      ? 80
+      : 443;
+  if (effectivePort !== port) {
     throw new Error("CDP debugger url port does not match the requested port.");
   }
   return rawUrl;

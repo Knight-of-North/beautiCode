@@ -2,7 +2,7 @@
  * background-bar.ts — WorkBuddy 侧栏「自定义背景」注入模块（v6 · 宿主菜单项风格）
  *
  * beautiCode 的 WorkBuddy 适配层功能块：payload 字符串由 scripts/wb-cdp-runner.mjs
- * 通过 `Runtime.evaluate` 注入。demo 级：不持久化、不接素材库。
+ * 通过 `Runtime.evaluate` 注入。壁纸与三滑杆由守护落盘 state.json 恢复。
  *
  * UI 交互（v5→v6）：点击「自定义背景」浮出弹窗，复刻宿主用户名菜单（.user-menu-popover
  * 实测配方：portal 到 body、fixed、z-index:1100、宽 320、圆角 16px、0.5px 描边、
@@ -32,7 +32,7 @@ export const BACKGROUND_BAR_STYLE_ID = 'beauticode-workbuddy-bg';
  * payload 世代戳：每次改 payload 内容时递增。守卫用它判断页面上的注入
  * 是否为「当前代」——旧代按钮的闭包攥着已分离的节点引用，必须全拆重建。
  */
-export const BACKGROUND_BAR_VERSION = 'v9.7';
+export const BACKGROUND_BAR_VERSION = 'v9.8';
 
 /** 注入 IIFE 字符串；幂等（守卫同时校验 entry 是否仍在 DOM，侧栏收起/重挂后可重建）。 */
 export const BACKGROUND_BAR_INJECTION: string = (function () {
@@ -258,7 +258,20 @@ document.body.appendChild(pop);
 
 // ── 皮肤中心浮窗（DSH gallery 对齐） ──
 var GPORT = parseInt('__BC_GALLERY_PORT__', 10) || 9337;
+var GTOKEN = __BC_GALLERY_TOKEN__;
 var CENTER_URL = __BC_CENTER_URL__;
+function safeCenterUrl(raw) {
+  try {
+    var parsed = new URL(String(raw || ''));
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return '';
+    return parsed.href;
+  } catch { return ''; }
+}
+function galleryUrl(pathname, extra) {
+  var u = 'http://127.0.0.1:' + GPORT + pathname + '?t=' + encodeURIComponent(GTOKEN);
+  if (extra) u += extra;
+  return u;
+}
 var gal = document.createElement('div');
 gal.className = 'beauticode-gal';
 gal.setAttribute('data-bc-injected', BC);
@@ -270,26 +283,48 @@ var galMsg = gal.querySelector('.bcg-msg');
 var galFoot = gal.querySelector('.bcg-foot');
 var galBusy = false;
 function galRender(list) {
-  galGrid.innerHTML = list.map(function (s2) {
-    var media = s2.type === 'video'
-      ? '<video src="http://127.0.0.1:' + GPORT + '/media?id=' + s2.id + '" muted preload="metadata"></video>'
-      : '<img alt="" src="http://127.0.0.1:' + GPORT + '/media?id=' + s2.id + '">';
-    return '<button type="button" class="bcg-card" data-id="' + s2.id + '" data-name="' + s2.name + '">' + media + '<span>' + s2.name + (s2.type === 'video' ? ' · 视频' : '') + '</span></button>';
-  }).join('');
+  galGrid.textContent = '';
+  list.forEach(function (s2) {
+    var card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'bcg-card';
+    card.dataset.id = String(s2.id || '');
+    card.dataset.name = String(s2.name || '');
+    var media = document.createElement(s2.type === 'video' ? 'video' : 'img');
+    if (s2.type === 'video') { media.muted = true; media.preload = 'metadata'; }
+    else { media.alt = ''; }
+    media.src = galleryUrl('/media', '&id=' + encodeURIComponent(s2.id || ''));
+    var span = document.createElement('span');
+    span.textContent = s2.name + (s2.type === 'video' ? ' · 视频' : '');
+    card.appendChild(media);
+    card.appendChild(span);
+    galGrid.appendChild(card);
+  });
+}
+function galFootFill() {
+  galFoot.textContent = '';
+  var href = safeCenterUrl(CENTER_URL);
+  if (!href) { galFoot.textContent = '未配置皮肤中心地址。'; return; }
+  galFoot.appendChild(document.createTextNode('上传与审核在 '));
+  var a = document.createElement('a');
+  a.href = href;
+  a.target = '_blank';
+  a.rel = 'noreferrer noopener';
+  a.textContent = '皮肤中心网站';
+  galFoot.appendChild(a);
+  galFoot.appendChild(document.createTextNode('。点卡片直接应用到 WorkBuddy。'));
 }
 function galLoad() {
   galMsg.textContent = '正在读取目录…';
-  fetch('http://127.0.0.1:' + GPORT + '/api/catalog').then(function (r2) { return r2.json(); }).then(function (d) {
+  fetch(galleryUrl('/api/catalog'), { headers: { 'x-beauticode-media-token': GTOKEN } }).then(function (r2) { return r2.json(); }).then(function (d) {
     var q = (gal.querySelector('.bcg-q').value || '').trim();
     var ty = gal.querySelector('.bcg-type').value;
     var list = (d.skins || []).filter(function (s2) { return (!q || s2.name.indexOf(q) >= 0) && (!ty || s2.type === ty); });
     galRender(list);
     galMsg.textContent = list.length ? '' : '目录是空的。';
-    galFoot.innerHTML = CENTER_URL
-      ? '上传与审核在 <a href="' + CENTER_URL + '" target="_blank" rel="noreferrer">皮肤中心网站</a>。点卡片直接应用到 WorkBuddy。'
-      : '未配置皮肤中心地址。';
+    galFootFill();
   }).catch(function () {
-    galGrid.innerHTML = '';
+    galGrid.textContent = '';
     galMsg.textContent = '皮肤中心服务未响应（beautiCode 守护在运行吗？）';
   });
 }
@@ -304,7 +339,11 @@ galGrid.addEventListener('click', function (ev) {
   if (!card || galBusy) return;
   galBusy = true;
   galMsg.textContent = '正在应用「' + card.dataset.name + '」…';
-  fetch('http://127.0.0.1:' + GPORT + '/apply?id=' + card.dataset.id).then(function (r2) { return r2.json(); }).then(function (j) {
+  fetch(galleryUrl('/apply'), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-beauticode-media-token': GTOKEN },
+    body: JSON.stringify({ id: card.dataset.id }),
+  }).then(function (r2) { return r2.json(); }).then(function (j) {
     galMsg.textContent = j.ok ? '已应用到 WorkBuddy。' : (j.error || '应用失败。');
   }).catch(function () { galMsg.textContent = '应用失败（皮肤中心服务未响应）。'; }).finally(function () { galBusy = false; });
 });
@@ -516,7 +555,7 @@ pop.addEventListener('click', function (ev) {
   }
   else if (act === 'sound') {
     muted = !muted;
-    var v0 = stage.querySelector('video.bc-media'); if (v0) v0.muted = muted;
+    var v0 = stageEl().querySelector('video.bc-media'); if (v0) v0.muted = muted;
     soundBtn.textContent = muted ? '已关' : '已开';
     soundBtn.setAttribute('aria-pressed', muted ? 'false' : 'true');
     msg(muted ? '声音已关。' : '声音已开（当前视频已同步）。');

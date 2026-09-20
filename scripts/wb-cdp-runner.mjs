@@ -51,11 +51,13 @@ const {
   TOKEN_SCAN_EXPRESSION, buildTokenOverlayCss, TOKEN_OVERLAY_STYLE_ID,
   HARDCODED_SURFACE_SCAN_EXPRESSION, buildHardcodedSurfaceCss,
   buildStyleKeeperExpression,
+  pickWorkBuddyTarget, assertLoopbackDebuggerUrl, safeTargetLabel,
 } = A;
 for (const [k, v] of Object.entries({
   BACKGROUND_BAR_INJECTION, BACKGROUND_BAR_CLEANUP, buildContractCss, readTheme,
   TOKEN_SCAN_EXPRESSION, buildTokenOverlayCss, TOKEN_OVERLAY_STYLE_ID,
   HARDCODED_SURFACE_SCAN_EXPRESSION, buildHardcodedSurfaceCss, buildStyleKeeperExpression,
+  pickWorkBuddyTarget, assertLoopbackDebuggerUrl, safeTargetLabel,
 })) {
   if (typeof v !== 'string' && typeof v !== 'function') {
     process.stderr.write(`adapter 导出形状不对：${k}\n`); process.exit(2);
@@ -101,13 +103,28 @@ const log = {
   error: (...m) => process.stderr.write(`[${ts()}] [error] ` + m.join(' ') + '\n'),
   debug: (...m) => { if (args.verbose) process.stderr.write(`[${ts()}] [debug] ` + m.join(' ') + '\n'); },
 };
-const fp = (u) => { const s = String(u || ''); const p = s.split('?')[0].slice(0, 32); return p + (s.length > p.length ? '…' : ''); };
+const fp = (u) => safeTargetLabel(u);
 
 // ── CDP ───────────────────────────────────────────────────────────────
+const MAX_CDP_JSON_BYTES = 1_000_000;
+async function fetchBoundedJson(url) {
+  const r = await fetch(url, { redirect: 'error' });
+  if (!r.ok) throw new Error(`${url} HTTP ${r.status}`);
+  const declared = Number(r.headers.get('content-length'));
+  if (Number.isFinite(declared) && declared > MAX_CDP_JSON_BYTES) {
+    throw new Error(`CDP JSON exceeded ${MAX_CDP_JSON_BYTES} bytes`);
+  }
+  const buf = Buffer.from(await r.arrayBuffer());
+  if (buf.length > MAX_CDP_JSON_BYTES) {
+    throw new Error(`CDP JSON exceeded ${MAX_CDP_JSON_BYTES} bytes`);
+  }
+  return JSON.parse(buf.toString('utf8'));
+}
 async function fetchTargets(port) {
-  const r = await fetch(`http://127.0.0.1:${port}/json/list`);
-  if (!r.ok) throw new Error(`/json/list HTTP ${r.status}`);
-  return r.json();
+  const list = await fetchBoundedJson(`http://127.0.0.1:${port}/json/list`);
+  if (!Array.isArray(list)) throw new Error('/json/list is not an array');
+  if (list.length > 500) throw new Error('/json/list exceeded target count safety cap');
+  return list;
 }
 function openWs(wsUrl) {
   return new Promise((resolve, reject) => {
@@ -150,14 +167,19 @@ el.textContent=css;return 'style:'+id;})()`;
 // 公用皮肤 = 内置素材 + 用户皮肤目录（~/Library/Application Support/beauticode/skins）。
 // 浏览器里点卡片 → /apply → 经 CDP 应用到 WorkBuddy 面板（__bcApplyBackgroundPath）。
 const GALLERY_PORT_BASE = 9337;
+const GALLERY_TOKEN = crypto.randomBytes(16).toString('hex');
+const SKIN_ID = /^skin-[a-f0-9]{8,40}$/i;
 const CENTER_URL = (() => {
   try {
-    return JSON.parse(fs.readFileSync(path.join(REPO, 'integrations', 'deepseek-harness', 'skin-center.json'), 'utf8')).url || null;
+    const raw = JSON.parse(fs.readFileSync(path.join(REPO, 'integrations', 'deepseek-harness', 'skin-center.json'), 'utf8')).url;
+    const parsed = new URL(String(raw || ''));
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+    return parsed.href;
   } catch { return null; }
 })();
 const DATA_DIR = process.platform === 'win32'
   ? path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'beauticode')
-  : path.join(process.env.HOME || '', 'Library', 'Application Support', 'beauticode');
+  : path.join(os.homedir(), 'Library', 'Application Support', 'beauticode');
 const SKINS_DIR = path.join(DATA_DIR, 'skins');
 const STATE_FILE = path.join(DATA_DIR, 'state.json');
 const GALLERY_MEDIA = {
@@ -167,6 +189,8 @@ const GALLERY_MEDIA = {
 };
 let galleryConn = null;
 let galleryPort = null;
+let galleryServer = null;
+let galleryApplyFn = null;
 const skinRegistry = new Map();
 
 function buildCatalog() {
@@ -193,6 +217,7 @@ function buildCatalog() {
 }
 
 function galleryPage() {
+  const tokenJson = JSON.stringify(GALLERY_TOKEN);
   return `<!doctype html><html lang="zh"><head><meta charset="utf-8"><title>beauticode 皮肤商城</title><style>
 body{margin:0;background:#101114;color:rgba(228,228,228,.92);font:15px -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif}
 header{padding:16px 22px;border-bottom:.5px solid rgba(255,255,255,.12);background:rgb(36,36,36)}
@@ -205,62 +230,157 @@ main{padding:16px 22px;display:grid;grid-template-columns:repeat(auto-fill,minma
 .card span{display:block;padding:8px 10px;font-size:13px}
 #msg{padding:10px 22px;min-height:20px;color:rgba(228,228,228,.55);font-size:12px}
 </style></head><body>
-<header><h1>beauticode 皮肤商城</h1><p>公用皮肤 · 点卡片直接应用到 WorkBuddy · 把文件放进 ~/Library/Application Support/beauticode/skins 可上架自己的皮肤</p></header>
+<header><h1>beauticode 皮肤商城</h1><p>公用皮肤 · 点卡片直接应用到 WorkBuddy · 把文件放进皮肤目录可上架自己的皮肤</p></header>
 <div id="msg">正在读取目录…</div><main id="grid"></main>
 <script>
-fetch('/api/catalog').then(r=>r.json()).then(d=>{var g=document.getElementById('grid');document.getElementById('msg').textContent=d.skins.length?('共 '+d.skins.length+' 款'):'目录是空的';
-g.innerHTML=d.skins.map(function(s){var media=s.type==='video'?'<video src="/media?id='+s.id+'" muted preload="metadata"></video>':'<img alt="" src="/media?id='+s.id+'">';return '<button class="card" data-id="'+s.id+'" data-name="'+s.name+'">'+media+'<span>'+s.name+(s.type==='video'?' · 视频':'')+'</span></button>'}).join('');
-g.addEventListener('click',function(ev){var c=ev.target.closest('.card');if(!c)return;document.getElementById('msg').textContent='正在应用「'+c.dataset.name+'」…';
-fetch('/apply?id='+c.dataset.id).then(function(r){return r.json()}).then(function(j){document.getElementById('msg').textContent=j.ok?('已应用到 WorkBuddy：「'+c.dataset.name+'」'):(j.error||'应用失败')}).catch(function(){document.getElementById('msg').textContent='应用失败（守护未连接？）'})})});
+var TOKEN = ${tokenJson};
+fetch('/api/catalog?t=' + encodeURIComponent(TOKEN)).then(function(r){return r.json()}).then(function(d){
+  var g = document.getElementById('grid');
+  document.getElementById('msg').textContent = d.skins.length ? ('共 ' + d.skins.length + ' 款') : '目录是空的';
+  (d.skins || []).forEach(function(s){
+    var card = document.createElement('button');
+    card.className = 'card';
+    card.dataset.id = s.id;
+    card.dataset.name = s.name || '';
+    var media = document.createElement(s.type === 'video' ? 'video' : 'img');
+    if (s.type === 'video') { media.muted = true; media.preload = 'metadata'; } else { media.alt = ''; }
+    media.src = '/media?id=' + encodeURIComponent(s.id) + '&t=' + encodeURIComponent(TOKEN);
+    var span = document.createElement('span');
+    span.textContent = s.name + (s.type === 'video' ? ' · 视频' : '');
+    card.appendChild(media); card.appendChild(span); g.appendChild(card);
+  });
+  g.addEventListener('click', function(ev){
+    var c = ev.target.closest('.card'); if (!c) return;
+    document.getElementById('msg').textContent = '正在应用「' + c.dataset.name + '」…';
+    fetch('/apply', { method: 'POST', headers: { 'content-type': 'application/json', 'x-beauticode-media-token': TOKEN }, body: JSON.stringify({ id: c.dataset.id }) })
+      .then(function(r){return r.json()}).then(function(j){
+        document.getElementById('msg').textContent = j.ok ? ('已应用到 WorkBuddy：「' + c.dataset.name + '」') : (j.error || '应用失败');
+      }).catch(function(){ document.getElementById('msg').textContent = '应用失败（守护未连接？）'; });
+  });
+});
 </script></body></html>`;
 }
 
+function isLoopbackHost(hostHeader) {
+  const host = String(hostHeader || '').split(':')[0].toLowerCase();
+  return host === '127.0.0.1' || host === 'localhost' || host === '::1' || host === '[::1]';
+}
+
+function isAllowedOrigin(origin) {
+  if (!origin) return true;
+  if (origin === 'null') return true;
+  try {
+    const parsed = new URL(origin);
+    return parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost' || parsed.hostname === '::1';
+  } catch {
+    return false;
+  }
+}
+
+function requestToken(req, url, body) {
+  const header = req.headers['x-beauticode-media-token'];
+  if (typeof header === 'string' && header) return header;
+  if (url.searchParams.get('t')) return url.searchParams.get('t');
+  if (body && typeof body.token === 'string') return body.token;
+  return '';
+}
+
+function deny(res, status, error) {
+  res.statusCode = status;
+  res.setHeader('content-type', 'application/json; charset=utf-8');
+  res.end(JSON.stringify({ ok: false, error }));
+}
+
 function startGalleryServer(applyFn) {
+  galleryApplyFn = applyFn;
+  if (galleryServer && galleryPort) return Promise.resolve(galleryPort);
+
   const galleryHandler = (req, res) => {
+    if (!isLoopbackHost(req.headers.host) || !isAllowedOrigin(req.headers.origin)) {
+      deny(res, 403, 'forbidden origin');
+      return;
+    }
     const u = new URL(req.url, 'http://127.0.0.1');
-    res.setHeader('access-control-allow-origin', '*');
+    const allowedOrigin = req.headers.origin && isAllowedOrigin(req.headers.origin) ? req.headers.origin : '';
+    if (allowedOrigin) res.setHeader('access-control-allow-origin', allowedOrigin);
+    res.setHeader('access-control-allow-headers', 'content-type, x-beauticode-media-token');
+    res.setHeader('access-control-allow-methods', 'GET, POST, OPTIONS');
+    if (req.method === 'OPTIONS') { res.statusCode = 204; res.end(); return; }
     res.setHeader('content-type', 'application/json; charset=utf-8');
+
     if (u.pathname === '/beauticode/gallery' || u.pathname === '/') {
       res.setHeader('content-type', 'text/html; charset=utf-8');
       res.end(galleryPage());
       return;
     }
-    if (u.pathname === '/api/catalog') { res.end(JSON.stringify({ skins: buildCatalog() })); return; }
-    const id = u.searchParams.get('id') || '';
+
+    const tokenOk = requestToken(req, u, null) === GALLERY_TOKEN;
+
+    if (u.pathname === '/api/catalog') {
+      if (!tokenOk) { deny(res, 403, 'bad token'); return; }
+      res.end(JSON.stringify({ skins: buildCatalog() }));
+      return;
+    }
     if (u.pathname === '/media') {
+      if (!tokenOk) { deny(res, 403, 'bad token'); return; }
+      const id = u.searchParams.get('id') || '';
+      if (!SKIN_ID.test(id)) { deny(res, 400, 'bad id'); return; }
       const file = skinRegistry.get(id);
-      if (!file || !fs.existsSync(file)) { res.statusCode = 404; res.end(JSON.stringify({ ok: false, error: 'unknown id' })); return; }
+      if (!file || !fs.existsSync(file)) { deny(res, 404, 'unknown id'); return; }
       res.setHeader('content-type', GALLERY_MEDIA[path.extname(file).toLowerCase()] || 'application/octet-stream');
       fs.createReadStream(file).pipe(res);
       return;
     }
     if (u.pathname === '/apply') {
-      const file = skinRegistry.get(id);
-      if (!file) { res.statusCode = 404; res.end(JSON.stringify({ ok: false, error: 'unknown id' })); return; }
-      if (!galleryConn) { res.statusCode = 503; res.end(JSON.stringify({ ok: false, error: '守护未连接 WorkBuddy' })); return; }
-      applyFn(file)
-        .then(() => { log.info(`皮肤商城：已应用 ${path.basename(file)}`); res.end(JSON.stringify({ ok: true, name: path.basename(file) })); })
-        .catch((e) => { res.statusCode = 500; res.end(JSON.stringify({ ok: false, error: e.message })); });
+      if (req.method !== 'POST') { deny(res, 405, 'POST required'); return; }
+      const chunks = [];
+      let n = 0;
+      req.on('data', (c) => {
+        n += c.length;
+        if (n > 4096) { req.destroy(); return; }
+        chunks.push(c);
+      });
+      req.on('end', () => {
+        let body = {};
+        try { body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'); } catch { body = {}; }
+        if (requestToken(req, u, body) !== GALLERY_TOKEN) { deny(res, 403, 'bad token'); return; }
+        const id = String(body.id || '');
+        if (!SKIN_ID.test(id)) { deny(res, 400, 'bad id'); return; }
+        const file = skinRegistry.get(id);
+        if (!file) { deny(res, 404, 'unknown id'); return; }
+        if (!galleryConn || !galleryApplyFn) { deny(res, 503, '守护未连接 WorkBuddy'); return; }
+        galleryApplyFn(file)
+          .then(() => { log.info(`皮肤商城：已应用 ${path.basename(file)}`); res.end(JSON.stringify({ ok: true, name: path.basename(file) })); })
+          .catch((e) => { deny(res, 500, e.message); });
+      });
       return;
     }
-    res.statusCode = 404;
-    res.end(JSON.stringify({ ok: false, error: 'not found' }));
+    deny(res, 404, 'not found');
   };
-  let p = GALLERY_PORT_BASE;
-  const tryNext = () => {
-    if (p >= GALLERY_PORT_BASE + 9) { log.warn('皮肤商城端口耗尽（9337-9345），未启动（其余功能不受影响）'); return; }
-    const port = p++;
-    const server = createServer(galleryHandler);
-    server.once('error', (e) => {
-      if (e.code === 'EADDRINUSE') { log.info(`皮肤商城端口 ${port} 被占，换下一个…`); tryNext(); }
-      else { log.warn('皮肤商城服务错误：', e.message); }
-    });
-    server.listen(port, '127.0.0.1', () => {
-      galleryPort = port;
-      log.info(`皮肤商城 ✓ http://127.0.0.1:${port}/beauticode/gallery（仅本机）`);
-    });
-  };
-  tryNext();
+
+  return new Promise((resolve) => {
+    let p = GALLERY_PORT_BASE;
+    const tryNext = () => {
+      if (p >= GALLERY_PORT_BASE + 9) {
+        log.warn('皮肤商城端口耗尽（9337-9345），未启动（其余功能不受影响）');
+        resolve(null);
+        return;
+      }
+      const port = p++;
+      const server = createServer(galleryHandler);
+      server.once('error', (e) => {
+        if (e.code === 'EADDRINUSE') { log.info(`皮肤商城端口 ${port} 被占，换下一个…`); tryNext(); }
+        else { log.warn('皮肤商城服务错误：', e.message); resolve(null); }
+      });
+      server.listen(port, '127.0.0.1', () => {
+        galleryServer = server;
+        galleryPort = port;
+        log.info(`皮肤商城 ✓ http://127.0.0.1:${port}/beauticode/gallery（仅本机，需令牌）`);
+        resolve(port);
+      });
+    };
+    tryNext();
+  });
 }
 
 // ── 完整应用序列 ──────────────────────────────────────────────────────
@@ -334,6 +454,7 @@ async function applyAll(c) {
   // 6) UI（侧栏条目 + 面板 + 舞台；皮肤中心浮窗的端口/中心URL占位符在此注入）
   const ui = await evaluate(c, BACKGROUND_BAR_INJECTION
     .replace(/__BC_GALLERY_PORT__/g, String(galleryPort || 9337))
+    .replace(/__BC_GALLERY_TOKEN__/g, JSON.stringify(GALLERY_TOKEN))
     .replace(/__BC_CENTER_URL__/g, JSON.stringify(CENTER_URL || '')));
   log.info('UI ✓（' + JSON.stringify(ui) + '）');
 
@@ -370,7 +491,7 @@ return 'default-applied';
   if (fs.existsSync(STATE_FILE)) {
     try {
       const st = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
-      await evaluate(c, 'window.__bcRestoreState && window.__bcRestoreState(' + JSON.stringify(JSON.stringify(st)) + ')');
+      await evaluate(c, 'window.__bcRestoreState && window.__bcRestoreState(' + JSON.stringify(st) + ')');
       log.info(`记忆恢复 ✓（壁纸=${st.wallpaper ? path.basename(st.wallpaper) : '已清除'}，阴影=${st.dim}% 磨砂=${st.blur}% 透明度=${st.alpha}%）`);
     } catch (e) { log.warn('记忆恢复失败：', e.message); }
   }
@@ -443,7 +564,7 @@ function startWatcher(c, state) {
         } catch (e) { log.debug('记忆调和：', e.message); }
       } else if (hasArchive && disk.cleared && blankLive) {
         // 清除态 + 页面空白（刚重装）→ 恢复清除态（撤掉默认壁纸）
-        await evaluate(c, 'window.__bcRestoreState && window.__bcRestoreState(' + JSON.stringify(JSON.stringify(disk)) + ')');
+        await evaluate(c, 'window.__bcRestoreState && window.__bcRestoreState(' + JSON.stringify(disk) + ')');
         log.info('记忆调和 ✓（清除态恢复）');
       }
 
@@ -485,7 +606,7 @@ async function pickFileNative() {
       "if($d.ShowDialog() -eq 'OK'){$d.FileName}";
     const out = await new Promise((resolve, reject) => {
       // -STA：WinForms 文件对话框要求单线程单元（MTA 下可能异常/卡顿）
-      execFile('powershell.exe', ['-NoProfile', '-STA', '-Command', ps], { maxBuffer: 1 << 20 },
+      execFile('powershell.exe', ['-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-Command', ps], { maxBuffer: 1 << 20 },
         (err, so) => err ? reject(err) : resolve(String(so).trim()));
     });
     if (!out) throw new Error('cancel');
@@ -550,16 +671,17 @@ function startPickWatcher(c) {
 // ── 单次连接生命周期 ──────────────────────────────────────────────────
 async function session() {
   const targets = await fetchTargets(PORT);
-  const page = targets.find((t) => t.type === 'page');
-  if (!page) throw new Error('no page target');
+  const page = pickWorkBuddyTarget(targets);
+  if (!page) throw new Error('no WorkBuddy renderer page target');
+  const wsUrl = assertLoopbackDebuggerUrl(page.webSocketDebuggerUrl, PORT);
   log.info(`target ${page.id}  url=${fp(page.url)}`);
-  const c = await openWs(page.webSocketDebuggerUrl);
+  const c = await openWs(wsUrl);
 
   if (args.clean) { await cleanupAll(c); c.close(); process.exit(0); }
 
   const state = { lastThemeFp: '', panelOpen: false };
   galleryConn = c;
-  startGalleryServer(async (file) => {
+  await startGalleryServer(async (file) => {
     await evaluate(c, 'window.__bcApplyBackgroundPath && window.__bcApplyBackgroundPath(' + JSON.stringify(file) + ')');
   });
   await applyAll(c);
@@ -574,29 +696,31 @@ async function session() {
   });
   const poll = startWatcher(c, state);
   const pickPoll = startPickWatcher(c);
+  activeSession = { c, poll, pickPoll };
   log.info('守护运行中（1.5s 轮询 + 150ms 取件轮询 + 断线重连）；Ctrl+C 清理并退出');
 
-  let stopping = false;
-  const shutdown = async (sig) => {
-    if (stopping) return; stopping = true;
-    log.info(sig + ' → 清理并退出');
-    clearInterval(poll);
-    clearInterval(pickPoll);
-    await cleanupAll(c).catch(() => {});
-    try { c.close(); } catch {}
-    process.exit(0);
-  };
-  process.on('SIGINT', () => shutdown('SIGINT'));
-  process.on('SIGTERM', () => shutdown('SIGTERM'));
-
-  // 挂到连接关闭为止；由外层 loop 决定重连
   await new Promise((resolve, reject) => {
     c.ws.addEventListener('close', () => reject(Object.assign(new Error('ws-closed'), { code: 'WS_CLOSED' })));
   });
 }
 
-// ── 主循环：常驻重连（点开 WorkBuddy 就有，关掉也不死） ────────────────
+let activeSession = { c: null, poll: null, pickPoll: null };
+let shuttingDown = false;
+async function shutdown(sig) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  log.info(sig + ' → 清理并退出');
+  clearInterval(activeSession.poll);
+  clearInterval(activeSession.pickPoll);
+  if (activeSession.c) await cleanupAll(activeSession.c).catch(() => {});
+  try { activeSession.c?.close(); } catch {}
+  try { galleryServer?.close(); } catch {}
+  process.exit(0);
+}
+
 async function main() {
+  process.on('SIGINT', () => { shutdown('SIGINT'); });
+  process.on('SIGTERM', () => { shutdown('SIGTERM'); });
   for (;;) {
     try {
       log.info(`连接 http://127.0.0.1:${PORT} …`);

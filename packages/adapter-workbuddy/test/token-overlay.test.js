@@ -23,7 +23,9 @@ test("parseColorAlpha understands every form the host actually produces", () => 
   assert.equal(parseColorAlpha("color(srgb 0.94902 0.94902 0.94902)"), 1);
   // hex
   assert.equal(parseColorAlpha("#1f1f1f"), 1);
-  assert.equal(parseColorAlpha("#ffffffcc"), 1);
+  assert.equal(parseColorAlpha("#fff"), 1);
+  assert.ok(Math.abs(parseColorAlpha("#ffffffcc") - 0.8) < 0.005);
+  assert.ok(Math.abs(parseColorAlpha("#fff8") - 0x88 / 255) < 0.005);
   assert.equal(parseColorAlpha("transparent"), 0);
   // unknown
   assert.equal(parseColorAlpha("var(--x)"), null);

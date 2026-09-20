@@ -73,6 +73,11 @@ const STARTUP_VBS = path.join(home, 'AppData/Roaming/Microsoft/Windows/Start Men
 const WIN_LOG = path.join(home, 'beauticode-wb-runner.log');
 const LINUX_ENV = path.join(home, '.config/environment.d/beauticode-wb.conf');
 const LINUX_DESKTOP = path.join(home, '.config/autostart/beauticode-beauticode-wb-runner.desktop');
+const PID_FILE = PLAT === 'win32'
+  ? path.join(home, 'AppData', 'Roaming', 'beauticode', 'wb-runner.pid')
+  : PLAT === 'darwin'
+    ? path.join(home, 'Library', 'Logs', 'beauticode-wb-runner.pid')
+    : '/tmp/beauticode-wb-runner.pid';
 
 const macPlist = () => `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -88,15 +93,25 @@ const macPlist = () => `<?xml version="1.0" encoding="UTF-8"?>
   <key>StandardErrorPath</key><string>${MAC_LOG}</string>
 </dict></plist>`;
 
-const winVbs = () => `CreateObject("WScript.Shell").Run "${JSON.stringify(`"${NODE}" "${RUNNER}"`).slice(1, -1).replace(/""/g, '"')}", 0, False`;
+function vbsString(value) {
+  return `"${String(value).replace(/"/g, '""')}"`;
+}
+const winVbs = () => `CreateObject("WScript.Shell").Run ${vbsString(`"${NODE}" "${RUNNER}"`)}, 0, False`;
 
-const linuxDesktop = () => `[Desktop Entry]
+function shSingleQuote(value) {
+  return `'${String(value).replace(/'/g, `'\\''`)}'`;
+}
+const linuxDesktop = () => {
+  const cmd = `exec ${shSingleQuote(NODE)} ${shSingleQuote(RUNNER)} >> /tmp/beauticode-wb-runner.log 2>&1`;
+  const escaped = cmd.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  return `[Desktop Entry]
 Type=Application
 Name=beautiCode WorkBuddy runner
 Comment=注入 WorkBuddy 自定义背景（CDP）
-Exec=/bin/sh -c 'exec ${NODE} ${RUNNER} >> /tmp/beauticode-wb-runner.log 2>&1'
+Exec=/bin/sh -c "${escaped}"
 X-GNOME-Autostart-enabled=true
 Terminal=false`;
+};
 
 function installMac() {
   fs.mkdirSync(path.dirname(LAUNCHER_MAC), { recursive: true });
@@ -161,10 +176,26 @@ function statusLinux() {
   log(`  autostart：${fs.existsSync(LINUX_DESKTOP) ? '已安装' : '未安装'}`);
 }
 
-// ── 守护：立即拉起（脱离安装进程存活） ────────────────────────────────
+function stopManagedDaemon() {
+  try {
+    if (!fs.existsSync(PID_FILE)) return;
+    const pid = parseInt(fs.readFileSync(PID_FILE, 'utf8').trim(), 10);
+    if (!Number.isFinite(pid) || pid <= 0) return;
+    if (PLAT === 'win32') {
+      spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' });
+    } else {
+      try { process.kill(pid, 'SIGTERM'); } catch { /* already gone */ }
+    }
+  } finally {
+    fs.rmSync(PID_FILE, { force: true });
+  }
+}
+
 function startDaemon() {
+  stopManagedDaemon();
   const logFile = PLAT === 'darwin' ? MAC_LOG : PLAT === 'win32' ? WIN_LOG : '/tmp/beauticode-wb-runner.log';
   fs.mkdirSync(path.dirname(logFile), { recursive: true });
+  fs.mkdirSync(path.dirname(PID_FILE), { recursive: true });
   const out = fs.openSync(logFile, 'a');
   const child = spawn(NODE, [RUNNER], {
     detached: true, stdio: ['ignore', out, out],
@@ -172,12 +203,16 @@ function startDaemon() {
     windowsHide: true,
   });
   child.unref();
+  fs.writeFileSync(PID_FILE, String(child.pid));
   log(`  ✓ 守护已启动（pid ${child.pid}，日志 ${logFile}）`);
 }
 
 async function cdpUp() {
   try {
-    const r = await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(1500) });
+    const r = await fetch(`http://127.0.0.1:${port}/json/version`, {
+      signal: AbortSignal.timeout(1500),
+      redirect: 'error',
+    });
     return r.ok;
   } catch { return false; }
 }
@@ -197,8 +232,9 @@ if (cmd === 'status') {
 
 if (cmd === 'uninstall') {
   log('拆除 beautiCode × WorkBuddy：');
+  stopManagedDaemon();
   if (PLAT === 'darwin') uninstallMac(); else if (PLAT === 'win32') uninstallWin(); else uninstallLinux();
-  log('完成。正在运行的守护会随下一次退出停止（或手动 kill）。');
+  log('完成。已停止受管理的守护并拆除自启项。');
   process.exit(0);
 }
 
@@ -206,14 +242,10 @@ if (cmd === 'uninstall') {
 log(`安装 beautiCode × WorkBuddy（${PLAT}，端口 ${port}）：`);
 if (PLAT === 'darwin') installMac(); else if (PLAT === 'win32') installWin(); else installLinux();
 
-// 编译 adapter（runner 依赖 dist）
-const tsc = path.join(REPO, 'node_modules', '.bin', PLAT === 'win32' ? 'tsc.CMD' : 'tsc');
-if (fs.existsSync(tsc)) {
-  const b = spawnSync(PLAT === 'win32' ? tsc : process.execPath,
-    PLAT === 'win32' ? ['-p', 'packages/adapter-workbuddy/tsconfig.json'] : [tsc, '-p', 'packages/adapter-workbuddy/tsconfig.json'],
-    { cwd: REPO, encoding: 'utf8' });
-  log(b.status === 0 ? '  ✓ adapter 编译通过' : `  ✗ adapter 编译失败：\n${(b.stderr || '').slice(0, 400)}`);
-}
+const build = spawnSync('npm', ['run', 'build', '-w', '@beauticode/adapter-workbuddy'], {
+  cwd: REPO, encoding: 'utf8', shell: PLAT === 'win32',
+});
+log(build.status === 0 ? '  ✓ adapter 编译通过' : `  ✗ adapter 编译失败：\n${(build.stderr || build.stdout || '').slice(0, 400)}`);
 
 startDaemon();
 
