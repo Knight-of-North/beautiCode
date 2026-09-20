@@ -32,7 +32,7 @@ export const BACKGROUND_BAR_STYLE_ID = 'beauticode-workbuddy-bg';
  * payload 世代戳：每次改 payload 内容时递增。守卫用它判断页面上的注入
  * 是否为「当前代」——旧代按钮的闭包攥着已分离的节点引用，必须全拆重建。
  */
-export const BACKGROUND_BAR_VERSION = 'v8.2';
+export const BACKGROUND_BAR_VERSION = 'v9.1';
 
 /** 注入 IIFE 字符串；幂等（守卫同时校验 entry 是否仍在 DOM，侧栏收起/重挂后可重建）。 */
 export const BACKGROUND_BAR_INJECTION: string = (function () {
@@ -416,12 +416,14 @@ dimSlider.addEventListener('input', function () {
   // 线性语义（用户要求）：0% = 无蒙版（原版），往右单调加深；颜色跟主题（深黑/浅白）
   document.documentElement.style.setProperty('--bc-scrim-val', String(n / 100));
   dimValue.textContent = n + '%';
+  PERSIST.dim = n;
 });
 blurSlider.addEventListener('input', function () {
   var n = Number(blurSlider.value);
   if (!Number.isFinite(n)) return;
   applyBlurVar();
   blurValue.textContent = n + '%';
+  PERSIST.blur = n;
 });
 // 面板透明度：'input' 只更新标签；松手（change）挂请求，守护 ≤1.5s 内按新 α 重造
 alphaSlider.addEventListener('input', function () {
@@ -431,7 +433,28 @@ alphaSlider.addEventListener('input', function () {
   // 通过 CSS 变量实时驱动（生成 CSS 时 α 槽已变量化），拖动即生效、零重造。
   alphaValue.textContent = n + '%';
   document.documentElement.style.setProperty('--bc-surface-alpha-pct', (100 - n) + '%');
+  PERSIST.alpha = n;
 });
+
+// ── 状态记忆：页面维护实时状态，守护轮询落地 state.json，启动时 __bcRestoreState 恢复 ──
+// 挂在 window 上跨 payload 重装存活——否则 applyAll 每轮重装都会把状态打回
+// nulls，watcher 会把 nulls 覆盖进 state.json（实测把已保存的壁纸冲掉的真凶）
+window.__bcPersistStore = window.__bcPersistStore || { wallpaper: null, dim: null, blur: null, alpha: null, cleared: false };
+var PERSIST = window.__bcPersistStore;
+window.__bcPersistGet = function () { return JSON.stringify(PERSIST); };
+function persistMark(wallpaper) {
+  if (wallpaper === null) { PERSIST.cleared = true; PERSIST.wallpaper = null; }
+  else { PERSIST.cleared = false; PERSIST.wallpaper = wallpaper; }
+}
+window.__bcRestoreState = function (st) {
+  try {
+    if (st.dim != null) { dimSlider.value = String(st.dim); dimSlider.dispatchEvent(new Event('input')); }
+    if (st.blur != null) { blurSlider.value = String(st.blur); blurSlider.dispatchEvent(new Event('input')); }
+    if (st.alpha != null) { alphaSlider.value = String(st.alpha); alphaSlider.dispatchEvent(new Event('input')); }
+    if (st.wallpaper && st.wallpaper !== PERSIST.wallpaper) applyPath(st.wallpaper);
+    else if (!st.wallpaper && st.cleared) { clearMedia(); PERSIST.wallpaper = null; PERSIST.cleared = true; }
+  } catch (e) {}
+};
 
 // ── 弹窗开关（对齐用户名菜单：点击开合、点外部/Esc 关闭、从触发器上方弹出） ──
 function openPop() {
@@ -487,6 +510,7 @@ pop.addEventListener('click', function (ev) {
     clearMedia();
     if (currentUrl && currentUrl.indexOf('blob:') === 0) { URL.revokeObjectURL(currentUrl); }
     currentUrl = null;
+    persistMark(null);
     msg('已清除背景。');
   }
 });
@@ -495,8 +519,8 @@ pop.addEventListener('click', function (ev) {
 window.__bcApplyBackgroundPath = function (p) { try { applyPath(String(p)); } catch (e) {} };
 window.__bcBackgroundMsg = function (t) { try { msg(String(t)); } catch (e) {} };
 function applyPath(p) {
-  if (isImage(p)) applyMediaUrl(filePathToUrl(p), 'image');
-  else if (isVideo(p)) applyMediaUrl(filePathToUrl(p), 'video');
+  if (isImage(p)) { applyMediaUrl(filePathToUrl(p), 'image'); persistMark(p); }
+  else if (isVideo(p)) { applyMediaUrl(filePathToUrl(p), 'video'); persistMark(p); }
   else msg('不认识的扩展名：支持 png/jpg/webp/gif/bmp/avif 和 mp4/mov/webm/m4v。');
 }
 function isImage(p) { return /\\.(png|jpe?g|webp|gif|bmp|avif)$/i.test(p); }

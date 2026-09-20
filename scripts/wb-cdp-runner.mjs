@@ -155,9 +155,11 @@ const CENTER_URL = (() => {
     return JSON.parse(fs.readFileSync(path.join(REPO, 'integrations', 'deepseek-harness', 'skin-center.json'), 'utf8')).url || null;
   } catch { return null; }
 })();
-const SKINS_DIR = process.platform === 'win32'
-  ? path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'beauticode', 'skins')
-  : path.join(process.env.HOME || '', 'Library', 'Application Support', 'beauticode', 'skins');
+const DATA_DIR = process.platform === 'win32'
+  ? path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'beauticode')
+  : path.join(process.env.HOME || '', 'Library', 'Application Support', 'beauticode');
+const SKINS_DIR = path.join(DATA_DIR, 'skins');
+const STATE_FILE = path.join(DATA_DIR, 'state.json');
 const GALLERY_MEDIA = {
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp',
   '.gif': 'image/gif', '.bmp': 'image/bmp', '.avif': 'image/avif',
@@ -362,6 +364,16 @@ return 'default-applied';
     if (wp === 'default-applied') log.info('默认壁纸 ✓（舞台原本无媒体）');
     else log.debug('默认壁纸：' + wp);
   }
+
+  // 8) 记忆恢复：有 state.json 就把壁纸 + 三滑杆恢复到上次退出时的样子
+  //    （state.wallpaper=null 且 cleared=true = 用户上次主动清除 → 连默认壁纸也撤掉）
+  if (fs.existsSync(STATE_FILE)) {
+    try {
+      const st = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
+      await evaluate(c, 'window.__bcRestoreState && window.__bcRestoreState(' + JSON.stringify(JSON.stringify(st)) + ')');
+      log.info(`记忆恢复 ✓（壁纸=${st.wallpaper ? path.basename(st.wallpaper) : '已清除'}，阴影=${st.dim}% 磨砂=${st.blur}% 透明度=${st.alpha}%）`);
+    } catch (e) { log.warn('记忆恢复失败：', e.message); }
+  }
   return { theme, tokens: (scan.rows || []).length, ui };
 }
 
@@ -387,6 +399,7 @@ function startWatcher(c, state) {
         nav: !!document.querySelector('.conversation-list-tabs'),
         theme: document.documentElement.className,
         panel: !!document.querySelector('.sidebar-next'),
+        persist: window.__bcPersistGet ? window.__bcPersistGet() : null
       })`));
       const fpTheme = String(v.theme || '');
       if (v.nav && !v.entry) {
@@ -410,6 +423,25 @@ function startWatcher(c, state) {
         }, 1500);
       }
       state.panelOpen = panelOpen;
+      if (v.persist && v.persist !== state.lastPersist) {
+        // 空样本保护：页面刚刷新/重装时 __bcPersistStore 归零（全 null 且未清除），
+        // 这种样本绝不能覆盖磁盘上的有效存档——否则已保存的壁纸会被冲掉（实测踩过）
+        let blank = false;
+        try {
+          const inc = JSON.parse(v.persist);
+          blank = !inc.wallpaper && !inc.cleared && inc.dim == null && inc.blur == null && inc.alpha == null;
+        } catch { blank = true; }
+        let hasArchive = false;
+        try { const d = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); hasArchive = !!(d.wallpaper || d.cleared); } catch { /* 无存档 */ }
+        if (blank && hasArchive) {
+          log.debug('跳过空样本（保护已有存档）');
+        } else {
+          fs.mkdirSync(path.dirname(STATE_FILE), { recursive: true });
+          fs.writeFileSync(STATE_FILE, v.persist);
+          log.info('状态已保存 ✓（' + v.persist.slice(0, 110) + '）');
+        }
+        state.lastPersist = v.persist;
+      }
     } catch (e) { log.debug('watcher:', e.message); }
     finally { inflight = false; }
   };
