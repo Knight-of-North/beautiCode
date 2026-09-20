@@ -434,15 +434,14 @@ function startWatcher(c, state) {
       const hasArchive = !!(disk && (disk.wallpaper || disk.cleared));
 
       if (hasArchive && disk.wallpaper) {
-        // 舞台媒体核对：与存档不符即重新应用（幂等，1 tick 内自愈）
+        // 兜底恢复（语义修正）：只在舞台【完全没有媒体】时才恢复存档——
+        // 页面有任何媒体（包括用户导入的 blob 视频）都是用户的当前选择，
+        // 强制覆盖会让调和与用户互相顶掉（实测死循环：调和顶视频→用户再导→再顶）
+        // 每 tick 全幂等调和：媒体已在且一致时只同步滑杆值（3 次赋值），
+        // 缺媒体/路径不同时才重新应用——用户导入的 blob 等无路径媒体不会被顶掉
         try {
-          const base = path.basename(disk.wallpaper);
-          const seen = await evaluate(c, "(function(){var s=document.getElementById('beauticode-bg-stage');if(!s)return 'no-stage';var m=s.querySelector('img.bc-media,video.bc-media');return m?String(m.src||'').split('/').pop():''})()");
-          if (String(seen) !== base) {
-            await evaluate(c, 'window.__bcApplyBackgroundPath && window.__bcApplyBackgroundPath(' + JSON.stringify(JSON.stringify(disk.wallpaper)) + ')');
-            log.info(`记忆调和 ✓（舞台媒体 ${String(seen).slice(0, 40) || '空'} → ${base}）`);
-          }
-        } catch (e) { log.debug('舞台媒体核对：', e.message); }
+          await evaluate(c, 'window.__bcRestoreState && window.__bcRestoreState(' + JSON.stringify(JSON.stringify(disk)) + ')');
+        } catch (e) { log.debug('记忆调和：', e.message); }
       } else if (hasArchive && disk.cleared && blankLive) {
         // 清除态 + 页面空白（刚重装）→ 恢复清除态（撤掉默认壁纸）
         await evaluate(c, 'window.__bcRestoreState && window.__bcRestoreState(' + JSON.stringify(JSON.stringify(disk)) + ')');

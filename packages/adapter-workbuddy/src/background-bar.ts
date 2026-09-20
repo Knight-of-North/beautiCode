@@ -453,8 +453,9 @@ function persistMark(wallpaper) {
   if (wallpaper === null) { PERSIST.cleared = true; PERSIST.wallpaper = null; }
   else { PERSIST.cleared = false; PERSIST.wallpaper = wallpaper; }
 }
-window.__bcRestoreState = function (st) {
+window.__bcRestoreState = function (stRaw) {
   try {
+    var st = typeof stRaw === 'string' ? JSON.parse(stRaw) : stRaw;
     var qs = function (sel) { return document.querySelector('#beauticode-workbuddy-bg-panel ' + sel); };
     if (st.dim != null) { var d2 = qs('.bc-dim-slider'); if (d2) { d2.value = String(st.dim); d2.dispatchEvent(new Event('input')); } }
     if (st.blur != null) { var b2 = qs('.bc-blur-slider'); if (b2) { b2.value = String(st.blur); b2.dispatchEvent(new Event('input')); } }
