@@ -32,7 +32,7 @@ export const BACKGROUND_BAR_STYLE_ID = 'beauticode-workbuddy-bg';
  * payload 世代戳：每次改 payload 内容时递增。守卫用它判断页面上的注入
  * 是否为「当前代」——旧代按钮的闭包攥着已分离的节点引用，必须全拆重建。
  */
-export const BACKGROUND_BAR_VERSION = 'v9.1';
+export const BACKGROUND_BAR_VERSION = 'v9.5';
 
 /** 注入 IIFE 字符串；幂等（守卫同时校验 entry 是否仍在 DOM，侧栏收起/重挂后可重建）。 */
 export const BACKGROUND_BAR_INJECTION: string = (function () {
@@ -320,31 +320,38 @@ document.addEventListener('mousedown', function (ev) {
 
 // ── 舞台 + 媒体层（契约 poster-first 协议） ─────────────────────────
 document.documentElement.setAttribute('data-bc-active', 'true');
-var stage = document.getElementById('beauticode-bg-stage');
-if (!stage) {
-  stage = document.createElement('div');
-  stage.id = 'beauticode-bg-stage';
-  stage.setAttribute('data-bc-injected', BC);
-  stage.style.cssText = ['position:fixed', 'inset:0', 'z-index:0', 'overflow:hidden',
-    'pointer-events:none', 'background-color:#101114'].join(';');
-  document.body.insertBefore(stage, document.body.firstChild);
+// 舞台引用每次实时解析：WorkBuddy 重挂/整页刷新会让闭包捕获的旧节点脱离 DOM
+//（恢复写进幽灵节点 = 看起来"没生效"，实测踩过），绝不缓存元素引用
+function stageEl() {
+  var s2 = document.getElementById('beauticode-bg-stage');
+  if (!s2 || !s2.isConnected) {
+    s2 = document.createElement('div');
+    s2.id = 'beauticode-bg-stage';
+    s2.setAttribute('data-bc-injected', BC);
+    s2.style.cssText = ['position:fixed', 'inset:0', 'z-index:0', 'overflow:hidden',
+      'pointer-events:none', 'background-color:#101114'].join(';');
+    document.documentElement.insertBefore(s2, document.body);
+  }
+  return s2;
 }
 function media(tag) {
-  var el = stage.querySelector(tag + '.bc-media');
+  var st = stageEl();
+  var el = st.querySelector(tag + '.bc-media');
   if (!el) {
     el = document.createElement(tag);
     el.className = 'bc-media';
-    stage.appendChild(el);
+    st.appendChild(el);
     applyBlurVar();
   }
   return el;
 }
 function clearMedia() {
-  [...stage.querySelectorAll('img.bc-media,video.bc-media')].forEach(function (el) {
+  var st = stageEl();
+  [...st.querySelectorAll('img.bc-media,video.bc-media')].forEach(function (el) {
     if (el.tagName === 'VIDEO') { el.pause(); el.removeAttribute('src'); el.load(); }
     el.remove();
   });
-  stage.style.backgroundImage = 'none';
+  st.style.backgroundImage = 'none';
   document.documentElement.removeAttribute('data-bc-media');
   document.documentElement.removeAttribute('data-bc-video-ready');
 }
@@ -448,10 +455,12 @@ function persistMark(wallpaper) {
 }
 window.__bcRestoreState = function (st) {
   try {
-    if (st.dim != null) { dimSlider.value = String(st.dim); dimSlider.dispatchEvent(new Event('input')); }
-    if (st.blur != null) { blurSlider.value = String(st.blur); blurSlider.dispatchEvent(new Event('input')); }
-    if (st.alpha != null) { alphaSlider.value = String(st.alpha); alphaSlider.dispatchEvent(new Event('input')); }
-    if (st.wallpaper && st.wallpaper !== PERSIST.wallpaper) applyPath(st.wallpaper);
+    var qs = function (sel) { return document.querySelector('#beauticode-workbuddy-bg-panel ' + sel); };
+    if (st.dim != null) { var d2 = qs('.bc-dim-slider'); if (d2) { d2.value = String(st.dim); d2.dispatchEvent(new Event('input')); } }
+    if (st.blur != null) { var b2 = qs('.bc-blur-slider'); if (b2) { b2.value = String(st.blur); b2.dispatchEvent(new Event('input')); } }
+    if (st.alpha != null) { var a2 = qs('.bc-alpha-slider'); if (a2) { a2.value = String(st.alpha); a2.dispatchEvent(new Event('input')); } }
+    var hasMediaEl = (function () { var s2 = document.getElementById('beauticode-bg-stage'); return !!(s2 && s2.querySelector('img.bc-media,video.bc-media')); })();
+    if (st.wallpaper && (st.wallpaper !== PERSIST.wallpaper || !hasMediaEl)) applyPath(st.wallpaper);
     else if (!st.wallpaper && st.cleared) { clearMedia(); PERSIST.wallpaper = null; PERSIST.cleared = true; }
   } catch (e) {}
 };
@@ -517,6 +526,9 @@ pop.addEventListener('click', function (ev) {
 
 // 守护回填入口：原生选择器选中的路径 / 守护侧主动应用
 window.__bcApplyBackgroundPath = function (p) { try { applyPath(String(p)); } catch (e) {} };
+// 安装完成即自愈：WorkBuddy 重挂侧栏会重建弹窗/舞台（回默认），这里主动从
+// store 恢复一次——重装即恢复，不依赖守护轮询的时机（时机盲区实测卡死在默认）
+try { if (PERSIST.wallpaper) window.__bcRestoreState(JSON.parse(JSON.stringify(PERSIST))); } catch (e) {}
 window.__bcBackgroundMsg = function (t) { try { msg(String(t)); } catch (e) {} };
 function applyPath(p) {
   if (isImage(p)) { applyMediaUrl(filePathToUrl(p), 'image'); persistMark(p); }

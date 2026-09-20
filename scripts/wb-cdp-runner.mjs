@@ -423,19 +423,36 @@ function startWatcher(c, state) {
         }, 1500);
       }
       state.panelOpen = panelOpen;
-      if (v.persist && v.persist !== state.lastPersist) {
-        // 空样本保护：页面刚刷新/重装时 __bcPersistStore 归零（全 null 且未清除），
-        // 这种样本绝不能覆盖磁盘上的有效存档——否则已保存的壁纸会被冲掉（实测踩过）
-        let blank = false;
+      // ── 记忆调和：每 tick 核对（幂等）——React 重挂/SPA 导航随时可能把舞台打回默认 ──
+      let blankLive = true;
+      try {
+        const live = v.persist ? JSON.parse(v.persist) : null;
+        blankLive = !live || (!live.wallpaper && !live.cleared && live.dim == null && live.blur == null && live.alpha == null);
+      } catch { blankLive = true; }
+      let disk = null;
+      try { disk = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); } catch { /* 无存档 */ }
+      const hasArchive = !!(disk && (disk.wallpaper || disk.cleared));
+
+      if (hasArchive && disk.wallpaper) {
+        // 舞台媒体核对：与存档不符即重新应用（幂等，1 tick 内自愈）
         try {
-          const inc = JSON.parse(v.persist);
-          blank = !inc.wallpaper && !inc.cleared && inc.dim == null && inc.blur == null && inc.alpha == null;
-        } catch { blank = true; }
-        let hasArchive = false;
-        try { const d = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); hasArchive = !!(d.wallpaper || d.cleared); } catch { /* 无存档 */ }
-        if (blank && hasArchive) {
-          log.debug('跳过空样本（保护已有存档）');
-        } else {
+          const base = path.basename(disk.wallpaper);
+          const seen = await evaluate(c, "(function(){var s=document.getElementById('beauticode-bg-stage');if(!s)return 'no-stage';var m=s.querySelector('img.bc-media,video.bc-media');return m?String(m.src||'').split('/').pop():''})()");
+          if (String(seen) !== base) {
+            await evaluate(c, 'window.__bcApplyBackgroundPath && window.__bcApplyBackgroundPath(' + JSON.stringify(JSON.stringify(disk.wallpaper)) + ')');
+            log.info(`记忆调和 ✓（舞台媒体 ${String(seen).slice(0, 40) || '空'} → ${base}）`);
+          }
+        } catch (e) { log.debug('舞台媒体核对：', e.message); }
+      } else if (hasArchive && disk.cleared && blankLive) {
+        // 清除态 + 页面空白（刚重装）→ 恢复清除态（撤掉默认壁纸）
+        await evaluate(c, 'window.__bcRestoreState && window.__bcRestoreState(' + JSON.stringify(JSON.stringify(disk)) + ')');
+        log.info('记忆调和 ✓（清除态恢复）');
+      }
+
+      // 状态写盘：仅在页面状态真实变化（非空白样本）时覆盖存档
+      // （空白样本 = 刚重装/刚刷新的初始态，覆盖会把已存壁纸冲掉——实测踩过）
+      if (v.persist && v.persist !== state.lastPersist) {
+        if (!blankLive) {
           fs.mkdirSync(path.dirname(STATE_FILE), { recursive: true });
           fs.writeFileSync(STATE_FILE, v.persist);
           log.info('状态已保存 ✓（' + v.persist.slice(0, 110) + '）');
