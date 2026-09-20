@@ -386,9 +386,12 @@ test("apply transaction offline success path", async () => {
   }
   assert.ok(media.activeVideo?.url.startsWith("http://127.0.0.1:"));
   assert.ok(media.activeImage?.srcUrl.includes("?t="));
+  // Staged paths come back canonicalised (validate → realpath), while
+  // `store.paths` keeps the logical root, so canonicalise before comparing.
+  const canonicalRuntimeDir = await fs.realpath(store.paths.runtimeMediaDir);
   assert.ok(
     path.resolve(media.activeVideo.filePath).startsWith(
-      `${path.resolve(store.paths.runtimeMediaDir)}${path.sep}`,
+      `${path.resolve(canonicalRuntimeDir)}${path.sep}`,
     ),
   );
   assert.ok(
