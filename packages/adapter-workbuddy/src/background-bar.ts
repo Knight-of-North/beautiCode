@@ -32,7 +32,7 @@ export const BACKGROUND_BAR_STYLE_ID = 'beauticode-workbuddy-bg';
  * payload 世代戳：每次改 payload 内容时递增。守卫用它判断页面上的注入
  * 是否为「当前代」——旧代按钮的闭包攥着已分离的节点引用，必须全拆重建。
  */
-export const BACKGROUND_BAR_VERSION = 'v8.4';
+export const BACKGROUND_BAR_VERSION = 'v8.2';
 
 /** 注入 IIFE 字符串；幂等（守卫同时校验 entry 是否仍在 DOM，侧栏收起/重挂后可重建）。 */
 export const BACKGROUND_BAR_INJECTION: string = (function () {
@@ -88,14 +88,14 @@ styleEl.textContent = [
     'outline-color:rgba(0,0,0,.1)}',
   // 菜单项（复用宿主 user-menu-item / user-menu-item-icon / user-menu-separator）
   '.beauticode-popover,.beauticode-popover *{box-sizing:border-box}',
-  '.beauticode-popover .user-menu-item{display:flex;align-items:center;gap:12px;width:100%;min-height:40px;padding:8px 16px;margin:0;font-size:14px !important;line-height:20px !important}',
+  '.beauticode-popover .user-menu-item{display:flex;align-items:center;gap:10px;width:100%;padding:8px 16px;margin:0}',
   '.beauticode-popover .user-menu-item:hover{background:rgba(255,255,255,.06)}',
   'html.light .beauticode-popover .user-menu-item:hover{background:rgba(0,0,0,.05)}',
   '.beauticode-popover .user-menu-item-icon{display:flex;flex:none;color:inherit;opacity:.9}',
   '.beauticode-popover .user-menu-item-icon svg{width:16px;height:16px;display:block}',
-  '.beauticode-popover .bc-title{flex:1;font-size:14px !important;line-height:20px !important;font-weight:500;min-width:0}',
+  '.beauticode-popover .bc-title{flex:1;font-size:13px;font-weight:500;min-width:0}',
   '.beauticode-popover .bc-ctl{flex:none;display:flex;align-items:center;gap:6px;max-width:60%}',
-  '.beauticode-popover .bc-sliderval{min-width:2.6em;font-size:12px !important;line-height:20px !important;opacity:.62;text-align:right;font-variant-numeric:tabular-nums}',
+  '.beauticode-popover .bc-sliderval{min-width:2.6em;font-size:11px;opacity:.62;text-align:right;font-variant-numeric:tabular-nums}',
   '.beauticode-popover input[type=range]{width:96px;max-width:100%;accent-color:currentColor;cursor:pointer}',
   '.beauticode-popover .bc-pill{padding:4px 11px;border-radius:999px;border:1px solid rgba(255,255,255,.14);' +
     'background:rgba(255,255,255,.08);color:inherit;font:12px inherit;cursor:pointer;white-space:nowrap}',
