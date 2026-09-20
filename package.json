@@ -9,9 +9,9 @@
     "apps/*"
   ],
   "scripts": {
-    "build": "npm run build -w @beauticode/core && npm run build -w @beauticode/adapter-codex && npm run build -w @beauticode/adapter-dsh",
-    "test": "npm run test -w @beauticode/core && npm run test -w @beauticode/adapter-codex && npm run test -w @beauticode/adapter-dsh",
-    "typecheck": "npm run build -w @beauticode/core && npm run typecheck -w @beauticode/adapter-codex && npm run typecheck -w @beauticode/adapter-dsh",
+    "build": "npm run build -w @beauticode/core && npm run build -w @beauticode/adapter-codex && npm run build -w @beauticode/adapter-dsh && npm run build -w @beauticode/adapter-workbuddy",
+    "test": "npm run test -w @beauticode/core && npm run test -w @beauticode/adapter-codex && npm run test -w @beauticode/adapter-dsh && npm run test -w @beauticode/adapter-workbuddy",
+    "typecheck": "npm run build -w @beauticode/core && npm run typecheck -w @beauticode/adapter-codex && npm run typecheck -w @beauticode/adapter-dsh && npm run typecheck -w @beauticode/adapter-workbuddy",
     "discover": "node scripts/beauticode.mjs discover",
     "bc": "node scripts/beauticode.mjs",
     "smoke:live": "npm run build && node scripts/live-smoke.mjs",
@@ -19,7 +19,9 @@
     "installer:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-windows-installer.ps1",
     "plugin:pack": "node scripts/pack-dsh-plugin.mjs",
     "plugin:publish": "node scripts/pack-dsh-plugin.mjs --publish",
-    "plugin:pack-codex": "node scripts/pack-codex-plugin.mjs"
+    "plugin:pack-codex": "node scripts/pack-codex-plugin.mjs",
+    "wb:runner": "node scripts/wb-cdp-runner.mjs",
+    "wb:setup": "node scripts/wb-setup.mjs"
   },
   "engines": {
     "node": ">=22"

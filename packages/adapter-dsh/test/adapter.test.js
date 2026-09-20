@@ -327,7 +327,13 @@ test("DSH session applies MP4, restores its position, and controls modes", async
   assert.equal(videoApplied.ok, true);
   assert.equal(videoApplied.theme?.name, "本地视频主题");
   assert.equal((await session.status()).manifest.background?.type, "video");
-  assert.equal((await session.status()).manifest.background?.source?.path, video);
+  // The manifest stores the canonicalised path (validation resolves `realpath`,
+  // which drops aliases like macOS `/private` prefixes and Windows 8.3 short
+  // names). Compare against the canonical form, not the raw temp path.
+  assert.equal(
+    (await session.status()).manifest.background?.source?.path,
+    await fs.realpath(video),
+  );
   assert.deepEqual((await fs.readdir(path.join(dataRoot, "active"))).sort(), [
     "background.json",
     "poster.png",
