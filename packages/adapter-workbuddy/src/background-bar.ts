@@ -32,7 +32,7 @@ export const BACKGROUND_BAR_STYLE_ID = 'beauticode-workbuddy-bg';
  * payload 世代戳：每次改 payload 内容时递增。守卫用它判断页面上的注入
  * 是否为「当前代」——旧代按钮的闭包攥着已分离的节点引用，必须全拆重建。
  */
-export const BACKGROUND_BAR_VERSION = 'v9.5';
+export const BACKGROUND_BAR_VERSION = 'v9.6';
 
 /** 注入 IIFE 字符串；幂等（守卫同时校验 entry 是否仍在 DOM，侧栏收起/重挂后可重建）。 */
 export const BACKGROUND_BAR_INJECTION: string = (function () {
@@ -412,6 +412,9 @@ function applyBlob(file) {
   var u = URL.createObjectURL(file);
   applyMediaUrl(u, kind);
   currentUrl = u;
+  // blob 无法记路径，但必须记状态——否则调和会把它当"空白页"用存档顶掉（实测 bug）
+  PERSIST.blob = true;
+  PERSIST.cleared = false;
 }
 
 // 滑杆行为（对齐 DSH console.js：input 即时生效，0 = 自动）
@@ -457,9 +460,10 @@ window.__bcRestoreState = function (stRaw) {
   try {
     var st = typeof stRaw === 'string' ? JSON.parse(stRaw) : stRaw;
     var qs = function (sel) { return document.querySelector('#beauticode-workbuddy-bg-panel ' + sel); };
-    if (st.dim != null) { var d2 = qs('.bc-dim-slider'); if (d2) { d2.value = String(st.dim); d2.dispatchEvent(new Event('input')); } }
-    if (st.blur != null) { var b2 = qs('.bc-blur-slider'); if (b2) { b2.value = String(st.blur); b2.dispatchEvent(new Event('input')); } }
-    if (st.alpha != null) { var a2 = qs('.bc-alpha-slider'); if (a2) { a2.value = String(st.alpha); a2.dispatchEvent(new Event('input')); } }
+    // 值相同就不设置/不派发事件——调和每 tick 调用时不再无谓跳动、不干扰拖动中的滑杆
+    if (st.dim != null) { var d2 = qs('.bc-dim-slider'); if (d2 && d2.value !== String(st.dim)) { d2.value = String(st.dim); d2.dispatchEvent(new Event('input')); } }
+    if (st.blur != null) { var b2 = qs('.bc-blur-slider'); if (b2 && b2.value !== String(st.blur)) { b2.value = String(st.blur); b2.dispatchEvent(new Event('input')); } }
+    if (st.alpha != null) { var a2 = qs('.bc-alpha-slider'); if (a2 && a2.value !== String(st.alpha)) { a2.value = String(st.alpha); a2.dispatchEvent(new Event('input')); } }
     var hasMediaEl = (function () { var s2 = document.getElementById('beauticode-bg-stage'); return !!(s2 && s2.querySelector('img.bc-media,video.bc-media')); })();
     if (st.wallpaper && (st.wallpaper !== PERSIST.wallpaper || !hasMediaEl)) applyPath(st.wallpaper);
     else if (!st.wallpaper && st.cleared) { clearMedia(); PERSIST.wallpaper = null; PERSIST.cleared = true; }
@@ -521,6 +525,7 @@ pop.addEventListener('click', function (ev) {
     if (currentUrl && currentUrl.indexOf('blob:') === 0) { URL.revokeObjectURL(currentUrl); }
     currentUrl = null;
     persistMark(null);
+    PERSIST.blob = false;
     msg('已清除背景。');
   }
 });

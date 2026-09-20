@@ -427,20 +427,19 @@ function startWatcher(c, state) {
       let blankLive = true;
       try {
         const live = v.persist ? JSON.parse(v.persist) : null;
-        blankLive = !live || (!live.wallpaper && !live.cleared && live.dim == null && live.blur == null && live.alpha == null);
+        blankLive = !live || (!live.wallpaper && !live.cleared && !live.blob && live.dim == null && live.blur == null && live.alpha == null);
       } catch { blankLive = true; }
       let disk = null;
       try { disk = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); } catch { /* 无存档 */ }
       const hasArchive = !!(disk && (disk.wallpaper || disk.cleared));
 
-      if (hasArchive && disk.wallpaper) {
-        // 兜底恢复（语义修正）：只在舞台【完全没有媒体】时才恢复存档——
-        // 页面有任何媒体（包括用户导入的 blob 视频）都是用户的当前选择，
-        // 强制覆盖会让调和与用户互相顶掉（实测死循环：调和顶视频→用户再导→再顶）
-        // 每 tick 全幂等调和：媒体已在且一致时只同步滑杆值（3 次赋值），
-        // 缺媒体/路径不同时才重新应用——用户导入的 blob 等无路径媒体不会被顶掉
+      if (hasArchive && disk.wallpaper && blankLive) {
+        // 纯兜底：只在页面【真空白】（全 null 且无 blob 标记 = 刚重装/刚刷新）时
+        // 恢复存档。非空白 = 用户的当前状态（拖动的滑杆、导入的 blob），绝不碰——
+        // 每 tick 无条件 restore 会把用户刚拖的滑杆拽回存档值、把 blob 媒体顶掉
+        //（实测：面板参数"隔一会儿变一下"的真凶）
         try {
-          await evaluate(c, 'window.__bcRestoreState && window.__bcRestoreState(' + JSON.stringify(JSON.stringify(disk)) + ')');
+          await evaluate(c, 'window.__bcRestoreState && window.__bcRestoreState(' + JSON.stringify(disk) + ')');
         } catch (e) { log.debug('记忆调和：', e.message); }
       } else if (hasArchive && disk.cleared && blankLive) {
         // 清除态 + 页面空白（刚重装）→ 恢复清除态（撤掉默认壁纸）
