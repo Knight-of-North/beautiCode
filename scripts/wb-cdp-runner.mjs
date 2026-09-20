@@ -526,6 +526,9 @@ function startPickWatcher(c) {
       // DSH/Codex 回落路径：不走 file://（视频/权限不可靠），
       // 用 DOM.setFileInputFiles 把真实 File 塞进隐藏 input，再派发 change，
       // 页面 applyBlob 走 blob: URL —— 与路径编码、TCC、CSP 全部解耦。
+      // 真实路径先行传递：payload 的 applyBlob 读它记入持久状态（媒体显示仍走
+      // blob URL 不变）——否则路径在 setFileInputFiles→blob 链路中丢失，重启无法恢复
+      await evaluate(c, 'window.__bcPendingPickPath = ' + JSON.stringify(picked));
       await c.send('DOM.enable');
       const doc = await c.send('DOM.getDocument', { depth: 1 });
       const q = await c.send('DOM.querySelector', {

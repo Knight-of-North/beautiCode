@@ -32,7 +32,7 @@ export const BACKGROUND_BAR_STYLE_ID = 'beauticode-workbuddy-bg';
  * payload 世代戳：每次改 payload 内容时递增。守卫用它判断页面上的注入
  * 是否为「当前代」——旧代按钮的闭包攥着已分离的节点引用，必须全拆重建。
  */
-export const BACKGROUND_BAR_VERSION = 'v9.6';
+export const BACKGROUND_BAR_VERSION = 'v9.7';
 
 /** 注入 IIFE 字符串；幂等（守卫同时校验 entry 是否仍在 DOM，侧栏收起/重挂后可重建）。 */
 export const BACKGROUND_BAR_INJECTION: string = (function () {
@@ -412,8 +412,12 @@ function applyBlob(file) {
   var u = URL.createObjectURL(file);
   applyMediaUrl(u, kind);
   currentUrl = u;
-  // blob 无法记路径，但必须记状态——否则调和会把它当"空白页"用存档顶掉（实测 bug）
-  PERSIST.blob = true;
+  // 路径记忆：守护选择文件后会把真实路径放到 __bcPendingPickPath——媒体显示用
+  // blob URL（100% 可靠），但状态记真实路径（blob 跨重启失效，重启后靠路径恢复）
+  var real = window.__bcPendingPickPath || '';
+  window.__bcPendingPickPath = '';
+  if (real) { PERSIST.wallpaper = real; PERSIST.blob = false; }
+  else { PERSIST.blob = true; }
   PERSIST.cleared = false;
 }
 
