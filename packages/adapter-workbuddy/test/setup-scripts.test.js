@@ -17,6 +17,8 @@ test("Windows file picker is launched in STA with a TopMost owner", () => {
   assert.doesNotMatch(source, /\$d\.ShowDialog\(\)/);
   assert.match(source, /__bcApplyBackgroundPath/);
   assert.match(source, /ensureWorkBuddyCdp/);
+  assert.match(source, /launchIfMissing:\s*false/);
+  assert.match(source, /repairWindowMs:\s*10_000/);
   assert.match(source, /--watchdog/);
   assert.match(source, /--no-launch/);
 });

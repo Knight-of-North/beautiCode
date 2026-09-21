@@ -91,7 +91,7 @@ const args = parseArgs(process.argv.slice(2));
 if (args.help) {
   process.stdout.write(
     '用法：node wb-cdp-runner.mjs [--port 9335] [--once] [--clean] [--verbose] [--watchdog] [--no-launch]\n' +
-    '  默认常驻：没有 CDP 时按 Codex 方式带环境变量拉起/重启 WorkBuddy，连上即注入\n' +
+    '  默认常驻：仅修复 10 秒内新启动且没有 CDP 的 WorkBuddy；主动退出后不会重开\n' +
     '  --once   应用一次后退出    --clean  清理后退出    --watchdog 崩溃拉起\n' +
     '  --no-launch  不启动/重启宿主，缺 CDP 时失败退出\n');
   process.exit(0);
@@ -790,7 +790,9 @@ async function main() {
       const ensured = await ensureWorkBuddyCdp({
         preferredPort: PORT,
         launch: !args.noLaunch,
+        launchIfMissing: false,
         restartIfBlind: !args.noLaunch,
+        repairWindowMs: 10_000,
         timeoutMs: args.once ? 15_000 : 40_000,
         log,
       });
@@ -800,7 +802,7 @@ async function main() {
       }
     } catch (e) {
       if (args.once || args.noLaunch) { log.error('fatal: ' + e.message); process.exit(1); }
-      log.warn('自动拉起失败：' + e.message.slice(0, 160) + ' —— 3s 后按原端口重试');
+      log.warn('启动检测暂未就绪：' + e.message.slice(0, 160) + ' —— 3s 后重试');
     }
   }
   for (;;) {
@@ -815,13 +817,15 @@ async function main() {
           const ensured = await ensureWorkBuddyCdp({
             preferredPort: PORT,
             launch: true,
+            launchIfMissing: false,
             restartIfBlind: true,
+            repairWindowMs: 10_000,
             timeoutMs: 20_000,
             log,
           });
           PORT = ensured.port;
         } catch (ensureErr) {
-          log.warn('重拉 WorkBuddy 失败：' + ensureErr.message.slice(0, 120));
+          log.warn('WorkBuddy 尚未恢复：' + ensureErr.message.slice(0, 120));
         }
       }
     }

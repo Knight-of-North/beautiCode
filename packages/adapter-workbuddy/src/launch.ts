@@ -17,11 +17,36 @@ import {
 
 const execFileAsync = promisify(execFile);
 
+export const DEFAULT_WORKBUDDY_REPAIR_WINDOW_MS = 10_000;
+
 export interface WorkBuddyProcess {
   pid: number;
   name: string;
+  executablePath: string;
   commandLine: string;
   port: number | null;
+  /** Main-process creation time. Null means it is unsafe to auto-restart. */
+  createdAtMs: number | null;
+}
+
+export type WorkBuddyStartupProcessDecision =
+  | "repair-now"
+  | "wait-for-cdp"
+  | "ignore-stale";
+
+export function classifyWorkBuddyStartupProcess(
+  proc: WorkBuddyProcess,
+  nowMs = Date.now(),
+  repairWindowMs = DEFAULT_WORKBUDDY_REPAIR_WINDOW_MS,
+): WorkBuddyStartupProcessDecision {
+  if (proc.port != null) return "wait-for-cdp";
+  if (proc.createdAtMs == null || !Number.isFinite(proc.createdAtMs)) {
+    return "ignore-stale";
+  }
+  const ageMs = nowMs - proc.createdAtMs;
+  return ageMs >= 0 && ageMs < repairWindowMs
+    ? "repair-now"
+    : "ignore-stale";
 }
 
 export interface WorkBuddyEnsureLog {
@@ -32,7 +57,10 @@ export interface WorkBuddyEnsureLog {
 export interface EnsureWorkBuddyCdpOptions {
   preferredPort?: number;
   launch?: boolean;
+  /** Whether a missing WorkBuddy process may be launched. Disable in guards. */
+  launchIfMissing?: boolean;
   restartIfBlind?: boolean;
+  repairWindowMs?: number;
   timeoutMs?: number;
   log?: WorkBuddyEnsureLog;
 }
@@ -132,7 +160,9 @@ async function scanWindowsWorkBuddyProcesses(): Promise<WorkBuddyProcess[]> {
     "if(-not $cmd){return};",
     "if($cmd -match '\\s--type='){return};",
     "if($_.Name -notmatch '(?i)WorkBuddy' -and $cmd -notmatch '(?i)WorkBuddy'){return};",
-    "$o=@{pid=$_.ProcessId;name=$_.Name;cmd=$cmd};",
+    "$created=0;",
+    "try{$created=([DateTimeOffset]$_.CreationDate).ToUnixTimeMilliseconds()}catch{};",
+    "$o=@{pid=$_.ProcessId;name=$_.Name;exe=$_.ExecutablePath;cmd=$cmd;created=$created};",
     "($o | ConvertTo-Json -Compress -Depth 3)",
     "}",
   ].join(" ");
@@ -153,7 +183,13 @@ async function scanWindowsWorkBuddyProcesses(): Promise<WorkBuddyProcess[]> {
     for (const line of String(stdout ?? "").split(/\r?\n/)) {
       const trimmed = line.trim();
       if (!trimmed.startsWith("{")) continue;
-      let row: { pid?: unknown; name?: unknown; cmd?: unknown };
+      let row: {
+        pid?: unknown;
+        name?: unknown;
+        exe?: unknown;
+        cmd?: unknown;
+        created?: unknown;
+      };
       try {
         row = JSON.parse(trimmed) as typeof row;
       } catch {
@@ -161,13 +197,19 @@ async function scanWindowsWorkBuddyProcesses(): Promise<WorkBuddyProcess[]> {
       }
       const commandLine = typeof row.cmd === "string" ? row.cmd : "";
       const name = typeof row.name === "string" ? row.name : "unknown";
+      const executablePath = typeof row.exe === "string" ? row.exe : "";
       if (!looksLikeWorkBuddy(commandLine, name)) continue;
       const flags = parseRemoteDebuggingFlags(commandLine);
       found.push({
         pid: Number(row.pid) || 0,
         name,
+        executablePath,
         commandLine,
         port: flags.safe ? flags.port : null,
+        createdAtMs:
+          Number.isFinite(Number(row.created)) && Number(row.created) > 0
+            ? Number(row.created)
+            : null,
       });
     }
     return found;
@@ -178,24 +220,30 @@ async function scanWindowsWorkBuddyProcesses(): Promise<WorkBuddyProcess[]> {
 
 async function scanUnixWorkBuddyProcesses(): Promise<WorkBuddyProcess[]> {
   try {
-    const { stdout } = await execFileAsync("ps", ["-axo", "pid=,command="], {
+    const { stdout } = await execFileAsync("ps", ["-axo", "pid=,etimes=,command="], {
       timeout: 5_000,
       maxBuffer: 4 * 1024 * 1024,
     });
     const found: WorkBuddyProcess[] = [];
     for (const line of String(stdout ?? "").split(/\n/)) {
-      const match = /^\s*(\d+)\s+(\S.*)$/.exec(line);
+      const match = /^\s*(\d+)\s+(\d+)\s+(\S.*)$/.exec(line);
       if (!match) continue;
-      const commandLine = match[2] ?? "";
+      const commandLine = match[3] ?? "";
       if (!looksLikeWorkBuddy(commandLine, path.basename(commandLine.split(/\s+/)[0] ?? ""))) {
         continue;
       }
       const flags = parseRemoteDebuggingFlags(commandLine);
+      const executablePath = commandLine.split(/\s+/)[0] ?? "";
+      const elapsedSeconds = Number(match[2]);
       found.push({
         pid: Number(match[1]) || 0,
         name: "WorkBuddy",
+        executablePath,
         commandLine,
         port: flags.safe ? flags.port : null,
+        createdAtMs: Number.isFinite(elapsedSeconds)
+          ? Date.now() - elapsedSeconds * 1_000
+          : null,
       });
     }
     return found;
@@ -263,6 +311,30 @@ export function launchWorkBuddyWithCdp(
   child.unref();
 }
 
+async function stopFreshWorkBuddyProcess(
+  proc: WorkBuddyProcess,
+): Promise<boolean> {
+  if (!proc.pid || proc.pid <= 0) return false;
+  if (process.platform === "win32") {
+    try {
+      await execFileAsync(
+        "taskkill.exe",
+        ["/PID", String(proc.pid), "/T", "/F"],
+        { windowsHide: true, timeout: 2_000 },
+      );
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  try {
+    process.kill(proc.pid, "SIGTERM");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function waitForWorkBuddyCdp(
   port: number,
   timeoutMs: number,
@@ -290,7 +362,10 @@ export async function ensureWorkBuddyCdp(
 ): Promise<EnsuredWorkBuddyCdp> {
   const preferred = opts.preferredPort ?? DEFAULT_WORKBUDDY_CDP_PORT;
   const launch = opts.launch !== false;
+  const launchIfMissing = opts.launchIfMissing !== false;
   const restartIfBlind = opts.restartIfBlind !== false;
+  const repairWindowMs =
+    opts.repairWindowMs ?? DEFAULT_WORKBUDDY_REPAIR_WINDOW_MS;
   const timeoutMs = opts.timeoutMs ?? 40_000;
   const log = opts.log;
 
@@ -322,8 +397,24 @@ export async function ensureWorkBuddyCdp(
   if (procs.length > 0) {
     const hasCdp = procs.some((p) => p.port != null);
     if (!hasCdp && restartIfBlind) {
-      log?.warn("WorkBuddy 在跑但没有 CDP，正在重启并带上调试端口…");
-      await stopWorkBuddyProcesses(procs);
+      const repairable = procs.filter(
+        (proc) =>
+          classifyWorkBuddyStartupProcess(proc, Date.now(), repairWindowMs) ===
+          "repair-now",
+      );
+      if (repairable.length !== 1 || procs.length !== 1) {
+        throw new Error(
+          "WorkBuddy 已运行超过 10 秒或存在多个主进程；为保护用户会话，不自动重启。",
+        );
+      }
+      const proc = repairable[0]!;
+      log?.warn(
+        `WorkBuddy 新主进程 ${proc.pid} 没有 CDP，正在执行一次修复性重启…`,
+      );
+      if (!(await stopFreshWorkBuddyProcess(proc))) {
+        throw new Error("WorkBuddy 新主进程已退出，取消本次自动重启。");
+      }
+      await delay(120);
       restarted = true;
     } else if (hasCdp) {
       const waiting = await waitForWorkBuddyCdp(preferred, Math.min(timeoutMs, 8_000));
@@ -334,6 +425,8 @@ export async function ensureWorkBuddyCdp(
         "WorkBuddy 已在运行但未开启 CDP。请退出后用带 WORKBUDDY_REMOTE_DEBUGGING_PORT 的方式启动。",
       );
     }
+  } else if (!launchIfMissing) {
+    throw new Error("WorkBuddy 未运行；等待用户从原始图标启动。");
   }
 
   const port = await pickAvailableLoopbackPort(preferred);

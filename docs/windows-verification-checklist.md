@@ -7,7 +7,7 @@
 `wb-setup.mjs` 三平台都会装：
 
 - [x] 守护常驻：Windows「启动」文件夹 VBS 拉起 `wb-cdp-runner.mjs --watchdog`（崩溃 3s 拉起）；macOS LaunchAgent KeepAlive；Linux autostart
-- [x] CDP 端口：Windows `setx WORKBUDDY_REMOTE_DEBUGGING_PORT`；runner 还会在口缺失时按 Codex 方式带该环境变量启动/重启 WorkBuddy
+- [x] CDP 端口：Windows `setx WORKBUDDY_REMOTE_DEBUGGING_PORT`；runner 只修复 10 秒内新启动且缺口的单一 WorkBuddy 主进程，进程不存在时等待用户启动，主动退出不会重开
 - [x] 日志：Windows `%LOCALAPPDATA%\beauticode\logs\wb-runner.log`
 
 ## 待真机回归（逻辑已跨平台）

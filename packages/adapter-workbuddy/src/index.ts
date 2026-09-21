@@ -57,6 +57,8 @@ export {
   type DiscoveredWorkBuddyCdp,
 } from "./discovery.js";
 export {
+  DEFAULT_WORKBUDDY_REPAIR_WINDOW_MS,
+  classifyWorkBuddyStartupProcess,
   workBuddyInstallCandidates,
   findWorkBuddyExecutable,
   isLoopbackPortFree,

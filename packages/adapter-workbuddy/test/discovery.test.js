@@ -4,10 +4,39 @@ import test from "node:test";
 import {
   DEFAULT_WORKBUDDY_CDP_PORT,
   WORKBUDDY_CDP_ENV_KEY,
+  classifyWorkBuddyStartupProcess,
   parseRemoteDebuggingFlags,
   probeWorkBuddyCdp,
   workBuddyInstallCandidates,
 } from "../dist/index.js";
+
+test("WorkBuddy startup repair is limited to a fresh process", () => {
+  const now = 1_800_000_000_000;
+  const process = {
+    pid: 42,
+    name: "WorkBuddy.exe",
+    executablePath: "C:\\Program Files\\WorkBuddy\\WorkBuddy.exe",
+    commandLine: '"C:\\Program Files\\WorkBuddy\\WorkBuddy.exe"',
+    port: null,
+    createdAtMs: now - 9_999,
+  };
+  assert.equal(classifyWorkBuddyStartupProcess(process, now), "repair-now");
+  assert.equal(
+    classifyWorkBuddyStartupProcess(
+      { ...process, createdAtMs: now - 10_000 },
+      now,
+    ),
+    "ignore-stale",
+  );
+  assert.equal(
+    classifyWorkBuddyStartupProcess({ ...process, createdAtMs: null }, now),
+    "ignore-stale",
+  );
+  assert.equal(
+    classifyWorkBuddyStartupProcess({ ...process, port: 9335 }, now),
+    "wait-for-cdp",
+  );
+});
 
 const WB_URL =
   "file:///C:/Users/me/AppData/Local/Programs/WorkBuddy/resources/app.asar/renderer/index.html?locale=zh-CN";

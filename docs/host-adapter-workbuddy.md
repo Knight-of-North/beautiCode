@@ -71,7 +71,7 @@ WORKBUDDY_REMOTE_DEBUGGING_PORT=9335 \
 
 - 从 Finder / Dock 双击启动**不会**带环境变量。
 - 备选：`launchctl setenv WORKBUDDY_REMOTE_DEBUGGING_PORT 9335` 后照常 `open -a WorkBuddy`。这是**全局**环境变量，用完要 `launchctl unsetenv`。
-- 日常路径对齐 Codex 托盘：`wb-cdp-runner` 先发现本机 WorkBuddy CDP；没有口则带 `WORKBUDDY_REMOTE_DEBUGGING_PORT` 拉起；进程在、口不在则重启后再注入。`--no-launch` 关闭该行为，缺口即失败。
+- 日常路径对齐 Codex 托盘：`wb-cdp-runner` 先发现本机 WorkBuddy CDP；只对启动不超过 10 秒、且没有口的单一新主进程做一次修复性重启。没有 WorkBuddy 进程时保持等待，用户主动退出后不会重新拉起。`--no-launch` 会连新进程修复也关闭，缺口即失败。
 - 点官方图标启动：仍靠 `wb-setup.mjs` 持久化环境变量（Windows `setx` / macOS `launchctl setenv`），下次启动自带 CDP。
 - 发现时必须命中 WorkBuddy renderer 页，避免 9335 上的 Codex 被误注入。
 - Windows 原生选择器用 TopMost owner 置前，并强制 UTF-8 输出路径；否则含中文的文件名会在 Node 管道中变成 `�`，表现为大视频导入/重启恢复失败。
