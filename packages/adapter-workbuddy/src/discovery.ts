@@ -40,13 +40,15 @@ export function parseRemoteDebuggingFlags(commandLine: string): {
     return { port: null, address: null, safe: false };
   }
   const portMatch = commandLine.match(
-    /--remote-debugging-port\s*=\s*(\d{1,5})\b/i,
+    /--remote-debugging-port\s*=\s*(?:"(\d{1,5})"|'(\d{1,5})'|(\d{1,5})\b)/i,
   );
   const addrMatch = commandLine.match(
-    /--remote-debugging-address\s*=\s*([^\s"']+)/i,
+    /--remote-debugging-address\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s"']+))/i,
   );
-  const port = portMatch ? Number(portMatch[1]) : null;
-  const address = addrMatch ? String(addrMatch[1]).trim() : null;
+  const portValue = portMatch?.[1] ?? portMatch?.[2] ?? portMatch?.[3];
+  const addressValue = addrMatch?.[1] ?? addrMatch?.[2] ?? addrMatch?.[3];
+  const port = portValue ? Number(portValue) : null;
+  const address = addressValue ? String(addressValue).trim() : null;
   if (port == null || !Number.isInteger(port) || port < 1 || port > 65535) {
     return { port: null, address, safe: false };
   }

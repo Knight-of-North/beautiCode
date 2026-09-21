@@ -59,6 +59,8 @@ export {
 export {
   DEFAULT_WORKBUDDY_REPAIR_WINDOW_MS,
   classifyWorkBuddyStartupProcess,
+  isWorkBuddyMainProcess,
+  parsePsElapsedSeconds,
   workBuddyInstallCandidates,
   findWorkBuddyExecutable,
   isLoopbackPortFree,

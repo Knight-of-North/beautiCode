@@ -21,6 +21,8 @@ test("Windows file picker is launched in STA with a TopMost owner", () => {
   assert.match(source, /repairWindowMs:\s*10_000/);
   assert.match(source, /--watchdog/);
   assert.match(source, /--no-launch/);
+  assert.match(source, /--watchdog 不能与 --once 或 --clean 同时使用/);
+  assert.match(source, /live\.themes\.length === 0/);
 });
 
 test("wb-setup persists env, installs a watchdog runner, and logs under LocalAppData", () => {

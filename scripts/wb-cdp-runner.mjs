@@ -395,6 +395,16 @@ function startGalleryServer(applyFn) {
 // 实时驱动（纯 CSS 变量，拖动即生效，无需守护重造）。
 const ALPHA_VARIFY = (css) =>
   css.split(' 82%, transparent)').join(' var(--bc-surface-alpha-pct, 82%), transparent)');
+
+function isBlankPersistState(live) {
+  return !live || (
+    !live.wallpaper && !live.cleared && !live.blob &&
+    live.dim == null && live.blur == null && live.alpha == null &&
+    (!Array.isArray(live.themes) || live.themes.length === 0) &&
+    !live.activeThemeId
+  );
+}
+
 async function applyAll(c) {
   // 1) 主题（fail-closed：读不出就不上 CSS，只上 UI 并说明原因）
   const className = await evaluate(c, 'document.documentElement.className');
@@ -494,7 +504,12 @@ return 'default-applied';
 
   // 8) 记忆恢复：有 state.json 就把壁纸 + 三滑杆恢复到上次退出时的样子
   //    （state.wallpaper=null 且 cleared=true = 用户上次主动清除 → 连默认壁纸也撤掉）
-  if (fs.existsSync(STATE_FILE)) {
+  let liveBeforeRestore = null;
+  try {
+    const raw = await evaluate(c, 'window.__bcPersistGet ? window.__bcPersistGet() : null');
+    liveBeforeRestore = raw ? JSON.parse(raw) : null;
+  } catch { /* treat unreadable live state as blank */ }
+  if (fs.existsSync(STATE_FILE) && isBlankPersistState(liveBeforeRestore)) {
     try {
       const st = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
       await evaluate(c, 'window.__bcRestoreState && window.__bcRestoreState(' + JSON.stringify(st) + ')');
@@ -554,7 +569,7 @@ function startWatcher(c, state) {
       let blankLive = true;
       try {
         const live = v.persist ? JSON.parse(v.persist) : null;
-        blankLive = !live || (!live.wallpaper && !live.cleared && !live.blob && live.dim == null && live.blur == null && live.alpha == null);
+        blankLive = isBlankPersistState(live);
       } catch { blankLive = true; }
       let disk = null;
       try { disk = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); } catch { /* 无存档 */ }
@@ -749,6 +764,9 @@ async function shutdown(sig) {
 }
 
 async function runWatchdog() {
+  if (args.once || args.clean) {
+    throw new Error('--watchdog 不能与 --once 或 --clean 同时使用');
+  }
   let child = null;
   let stopping = false;
   const start = () => {

@@ -5,6 +5,8 @@ import {
   DEFAULT_WORKBUDDY_CDP_PORT,
   WORKBUDDY_CDP_ENV_KEY,
   classifyWorkBuddyStartupProcess,
+  isWorkBuddyMainProcess,
+  parsePsElapsedSeconds,
   parseRemoteDebuggingFlags,
   probeWorkBuddyCdp,
   workBuddyInstallCandidates,
@@ -65,6 +67,41 @@ test("parseRemoteDebuggingFlags rejects a LAN bind", () => {
   );
   assert.equal(flags.port, 9222);
   assert.equal(flags.safe, false);
+
+  const quoted = parseRemoteDebuggingFlags(
+    `app --remote-debugging-address="0.0.0.0" --remote-debugging-port="9222"`,
+  );
+  assert.equal(quoted.port, 9222);
+  assert.equal(quoted.safe, false);
+});
+
+test("WorkBuddy process matching rejects command lines that only mention its name", () => {
+  assert.equal(
+    isWorkBuddyMainProcess(
+      'powershell.exe -Command "Get-Process WorkBuddy"',
+      "powershell.exe",
+      "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "win32",
+    ),
+    false,
+  );
+  assert.equal(
+    isWorkBuddyMainProcess(
+      '"C:\\Program Files\\WorkBuddy\\WorkBuddy.exe"',
+      "WorkBuddy.exe",
+      "C:\\Program Files\\WorkBuddy\\WorkBuddy.exe",
+      "win32",
+    ),
+    true,
+  );
+});
+
+test("macOS ps elapsed time is parsed without Linux etimes", () => {
+  assert.equal(parsePsElapsedSeconds("00:09"), 9);
+  assert.equal(parsePsElapsedSeconds("00:00:09"), 9);
+  assert.equal(parsePsElapsedSeconds("01:02:03"), 3_723);
+  assert.equal(parsePsElapsedSeconds("2-03:04:05"), 183_845);
+  assert.equal(parsePsElapsedSeconds("bad"), null);
 });
 
 test("parseRemoteDebuggingFlags treats omitted address as a loopback-probe candidate", () => {

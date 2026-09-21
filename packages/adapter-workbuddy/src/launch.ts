@@ -70,11 +70,45 @@ export interface EnsuredWorkBuddyCdp extends DiscoveredWorkBuddyCdp {
   restarted: boolean;
 }
 
-function looksLikeWorkBuddy(commandLine: string, name: string, exePath = ""): boolean {
-  const hay = `${name} ${exePath} ${commandLine}`;
-  if (!/WorkBuddy/i.test(hay)) return false;
+function executableFromCommandLine(commandLine: string): string {
+  const quoted = commandLine.match(/^\s*["']([^"']+)["']/);
+  return quoted?.[1] ?? commandLine.trim().split(/\s+/)[0] ?? "";
+}
+
+export function isWorkBuddyMainProcess(
+  commandLine: string,
+  name: string,
+  exePath = "",
+  platform: NodeJS.Platform = process.platform,
+): boolean {
   if (/\s--type=/.test(commandLine)) return false;
-  return true;
+  const executable = exePath || executableFromCommandLine(commandLine);
+  if (!executable) return false;
+  if (platform === "win32") {
+    return (
+      name.toLowerCase() === "workbuddy.exe" &&
+      path.win32.basename(executable).toLowerCase() === "workbuddy.exe"
+    );
+  }
+  if (platform === "darwin") {
+    return /\/WorkBuddy\.app\/Contents\/MacOS\/(?:Electron|WorkBuddy)$/i.test(
+      executable,
+    );
+  }
+  return path.basename(executable).toLowerCase() === "workbuddy";
+}
+
+export function parsePsElapsedSeconds(value: string): number | null {
+  const match = /^(?:(\d+)-)?(?:(\d{1,2}):)?(\d{1,2}):(\d{2})$/.exec(
+    value.trim(),
+  );
+  if (!match) return null;
+  const days = Number(match[1] ?? 0);
+  const hours = Number(match[2] ?? 0);
+  const minutes = Number(match[3]);
+  const seconds = Number(match[4]);
+  if (hours > 23 || minutes > 59 || seconds > 59) return null;
+  return days * 86_400 + hours * 3_600 + minutes * 60 + seconds;
 }
 
 export function workBuddyInstallCandidates(
@@ -159,7 +193,7 @@ async function scanWindowsWorkBuddyProcesses(): Promise<WorkBuddyProcess[]> {
     "$cmd=$_.CommandLine;",
     "if(-not $cmd){return};",
     "if($cmd -match '\\s--type='){return};",
-    "if($_.Name -notmatch '(?i)WorkBuddy' -and $cmd -notmatch '(?i)WorkBuddy'){return};",
+    "if($_.Name -ine 'WorkBuddy.exe'){return};",
     "$created=0;",
     "try{$created=([DateTimeOffset]$_.CreationDate).ToUnixTimeMilliseconds()}catch{};",
     "$o=@{pid=$_.ProcessId;name=$_.Name;exe=$_.ExecutablePath;cmd=$cmd;created=$created};",
@@ -198,7 +232,9 @@ async function scanWindowsWorkBuddyProcesses(): Promise<WorkBuddyProcess[]> {
       const commandLine = typeof row.cmd === "string" ? row.cmd : "";
       const name = typeof row.name === "string" ? row.name : "unknown";
       const executablePath = typeof row.exe === "string" ? row.exe : "";
-      if (!looksLikeWorkBuddy(commandLine, name)) continue;
+      if (!isWorkBuddyMainProcess(commandLine, name, executablePath, "win32")) {
+        continue;
+      }
       const flags = parseRemoteDebuggingFlags(commandLine);
       found.push({
         pid: Number(row.pid) || 0,
@@ -220,28 +256,43 @@ async function scanWindowsWorkBuddyProcesses(): Promise<WorkBuddyProcess[]> {
 
 async function scanUnixWorkBuddyProcesses(): Promise<WorkBuddyProcess[]> {
   try {
-    const { stdout } = await execFileAsync("ps", ["-axo", "pid=,etimes=,command="], {
+    const elapsedField = process.platform === "darwin" ? "etime=" : "etimes=";
+    const { stdout } = await execFileAsync("ps", [
+      "-axo",
+      `pid=,${elapsedField},command=`,
+    ], {
       timeout: 5_000,
       maxBuffer: 4 * 1024 * 1024,
     });
     const found: WorkBuddyProcess[] = [];
     for (const line of String(stdout ?? "").split(/\n/)) {
-      const match = /^\s*(\d+)\s+(\d+)\s+(\S.*)$/.exec(line);
+      const match = /^\s*(\d+)\s+(\S+)\s+(\S.*)$/.exec(line);
       if (!match) continue;
       const commandLine = match[3] ?? "";
-      if (!looksLikeWorkBuddy(commandLine, path.basename(commandLine.split(/\s+/)[0] ?? ""))) {
+      const executablePath = executableFromCommandLine(commandLine);
+      const processName = path.basename(executablePath);
+      if (
+        !isWorkBuddyMainProcess(
+          commandLine,
+          processName,
+          executablePath,
+          process.platform,
+        )
+      ) {
         continue;
       }
       const flags = parseRemoteDebuggingFlags(commandLine);
-      const executablePath = commandLine.split(/\s+/)[0] ?? "";
-      const elapsedSeconds = Number(match[2]);
+      const elapsedSeconds =
+        process.platform === "darwin"
+          ? parsePsElapsedSeconds(match[2] ?? "")
+          : Number(match[2]);
       found.push({
         pid: Number(match[1]) || 0,
         name: "WorkBuddy",
         executablePath,
         commandLine,
         port: flags.safe ? flags.port : null,
-        createdAtMs: Number.isFinite(elapsedSeconds)
+        createdAtMs: elapsedSeconds != null && Number.isFinite(elapsedSeconds)
           ? Date.now() - elapsedSeconds * 1_000
           : null,
       });
@@ -298,15 +349,19 @@ export async function stopWorkBuddyProcesses(
   }
 }
 
-export function launchWorkBuddyWithCdp(
+export async function launchWorkBuddyWithCdp(
   port: number,
   executable: string,
-): void {
+): Promise<void> {
   const child = spawn(executable, [], {
     detached: true,
     stdio: "ignore",
     env: { ...process.env, [WORKBUDDY_CDP_ENV_KEY]: String(port) },
     windowsHide: false,
+  });
+  await new Promise<void>((resolve, reject) => {
+    child.once("spawn", resolve);
+    child.once("error", reject);
   });
   child.unref();
 }
@@ -336,17 +391,18 @@ async function stopFreshWorkBuddyProcess(
 }
 
 async function waitForWorkBuddyCdp(
-  port: number,
+  ports: readonly number[],
   timeoutMs: number,
 ): Promise<DiscoveredWorkBuddyCdp | null> {
+  const candidates = [
+    ...new Set([...ports, ...DEFAULT_WORKBUDDY_CDP_PORTS]),
+  ];
   const deadline = Date.now() + Math.max(1_000, timeoutMs);
   while (Date.now() < deadline) {
-    const hit =
-      (await probeWorkBuddyCdp(port, { timeoutMs: 400 })) ||
-      (await discoverWorkBuddyCdp({
-        ports: [port, ...DEFAULT_WORKBUDDY_CDP_PORTS],
-        timeoutMs: 400,
-      }));
+    const hit = await discoverWorkBuddyCdp({
+      ports: candidates,
+      timeoutMs: 400,
+    });
     if (hit) return hit;
     await delay(400);
   }
@@ -417,7 +473,13 @@ export async function ensureWorkBuddyCdp(
       await delay(120);
       restarted = true;
     } else if (hasCdp) {
-      const waiting = await waitForWorkBuddyCdp(preferred, Math.min(timeoutMs, 8_000));
+      const declaredPorts = procs
+        .map((proc) => proc.port)
+        .filter((port): port is number => port != null);
+      const waiting = await waitForWorkBuddyCdp(
+        declaredPorts,
+        Math.min(timeoutMs, 8_000),
+      );
       if (waiting) return { ...waiting, launched: false, restarted: false };
       throw new Error("WorkBuddy 进程带有调试端口，但本机 CDP 尚未就绪。");
     } else if (!restartIfBlind) {
@@ -431,8 +493,8 @@ export async function ensureWorkBuddyCdp(
 
   const port = await pickAvailableLoopbackPort(preferred);
   log?.info(`带 ${WORKBUDDY_CDP_ENV_KEY}=${port} 启动 WorkBuddy`);
-  launchWorkBuddyWithCdp(port, exe);
-  const ready = await waitForWorkBuddyCdp(port, timeoutMs);
+  await launchWorkBuddyWithCdp(port, exe);
+  const ready = await waitForWorkBuddyCdp([port], timeoutMs);
   if (!ready) {
     throw new Error(
       `已启动 WorkBuddy，但 ${timeoutMs}ms 内未出现本机 CDP。请确认官方版本仍读取 ${WORKBUDDY_CDP_ENV_KEY}。`,
