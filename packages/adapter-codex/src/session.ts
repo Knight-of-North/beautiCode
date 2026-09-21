@@ -36,9 +36,9 @@ export interface BeautiSessionOptions {
   pollMs?: number;
   autoDiscover?: boolean;
   /**
-   * Launch/restart Codex when discovery finds no endpoint. Default true for
-   * explicit CLI sessions. Long-lived background watchers should set false so
-   * a user-initiated close remains closed; the process-start monitor handles
+   * Launch/restart Codex when discovery finds no endpoint. Defaults to false so
+   * tray and other long-lived sessions never reopen a user-closed host. An
+   * explicit foreground caller may opt in; the process-start monitor handles
    * only a newly opened, flagless instance.
    */
   autoLaunchHost?: boolean;
@@ -129,7 +129,7 @@ export class BeautiSession implements HostSession {
     this.urlPrefix = opts.urlPrefix;
     this.pollMs = opts.pollMs ?? 1_000;
     this.autoDiscover = opts.autoDiscover ?? true;
-    this.autoLaunchHost = opts.autoLaunchHost ?? true;
+    this.autoLaunchHost = opts.autoLaunchHost ?? false;
     // Default deferred: tray wants the control plane up immediately.
     this.deferHostConnect = opts.deferHostConnect ?? true;
     this.onError = opts.onError ?? null;

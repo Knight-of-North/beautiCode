@@ -618,6 +618,12 @@ test("parseRemoteDebuggingFlags treats omitted address as a loopback-probe candi
   assert.equal(bad.safe, false);
   assert.equal(bad.port, 9222);
 
+  const badQuoted = parseRemoteDebuggingFlags(
+    `app --remote-debugging-address="0.0.0.0" --remote-debugging-port="9222"`,
+  );
+  assert.equal(badQuoted.safe, false);
+  assert.equal(badQuoted.port, 9222);
+
   const missing = parseRemoteDebuggingFlags("no flags here");
   assert.equal(missing.port, null);
   assert.equal(missing.safe, false);
@@ -789,6 +795,15 @@ test("Codex startup monitor detects new PIDs without privileged WMI events", () 
   assert.match(source, /Start-Sleep -Milliseconds 200/);
   assert.doesNotMatch(source, /Win32_ProcessStartTrace|Register-WmiEvent/);
   assert.match(source, /CreationDate/);
+  assert.ok(
+    source.indexOf("$seen[$pidValue]=$true") >
+      source.indexOf("if(-not $cmd){continue}"),
+  );
+});
+
+test("BeautiSession defaults to preserving a user-closed Codex host", () => {
+  const session = new BeautiSession({ autoDiscover: false });
+  assert.equal(session.autoLaunchHost, false);
 });
 
 test("Codex watch host has one serialized ensure owner", async () => {
@@ -822,6 +837,9 @@ test("Codex installer starts the immediate watcher outside the host process tree
   );
   assert.match(source, /Invoke-CimMethod/);
   assert.match(source, /Win32_Process/);
+  assert.match(source, /\$ErrorActionPreference\s*=\s*'Stop'/);
+  assert.match(source, /\$null\s+-eq\s+\$result/);
+  assert.match(source, /本次未能立即启动后台监视器/);
   assert.match(source, /startIndependentWindows\(starter\)/);
 });
 

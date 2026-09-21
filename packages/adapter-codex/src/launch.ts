@@ -389,12 +389,19 @@ export function buildCodexLaunchCommand(
   };
 }
 
-function launchCodexWithCdp(port: number, executable: string): void {
+async function launchCodexWithCdp(
+  port: number,
+  executable: string,
+): Promise<void> {
   const command = buildCodexLaunchCommand(port, executable);
   const child = spawn(command.file, command.args, {
     detached: true,
     stdio: "ignore",
     windowsHide: true,
+  });
+  await new Promise<void>((resolve, reject) => {
+    child.once("spawn", resolve);
+    child.once("error", reject);
   });
   child.unref();
 }
@@ -429,7 +436,6 @@ export function buildWindowsCodexProcessStartScript(parentPid: number): string {
     "$pidValue=[int]$match.Id;",
     "$current[$pidValue]=$true;",
     "if($seen.ContainsKey($pidValue)){continue};",
-    "$seen[$pidValue]=$true;",
     "$p=Get-CimInstance Win32_Process -Filter ('ProcessId = ' + $pidValue);",
     "if($null -eq $p){continue};",
     "$name=[string]$p.Name;",
@@ -441,6 +447,7 @@ export function buildWindowsCodexProcessStartScript(parentPid: number): string {
     "$created=0;",
     "try{$created=([DateTimeOffset]$p.CreationDate).ToUnixTimeMilliseconds()}catch{};",
     "if($created -le 0){$created=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()};",
+    "$seen[$pidValue]=$true;",
     "$o=@{pid=$pidValue;name=$name;exe=$path;cmd=$cmd;created=$created};",
     "($o | ConvertTo-Json -Compress -Depth 3);",
     "}",
@@ -477,8 +484,8 @@ async function repairFreshBlindCodexProcess(
 
   const executable =
     parseExecutableFromProcess(exact) ||
-    findCodexExecutable() ||
-    (await findPackagedCodexExecutable());
+    (await findPackagedCodexExecutable()) ||
+    findCodexExecutable();
   if (!executable) {
     opts.log?.warn("检测到新的 Codex 进程，但无法确认可执行文件；跳过自动重启。");
     return;
@@ -502,7 +509,7 @@ async function repairFreshBlindCodexProcess(
     return;
   }
   await delay(120);
-  launchCodexWithCdp(port, executable);
+  await launchCodexWithCdp(port, executable);
   opts.log?.info(`已立即带 --remote-debugging-port=${port} 重启 Codex`);
 }
 
@@ -544,7 +551,7 @@ export function startCodexStartupRepairMonitor(
   const startChild = () => {
     if (closed) return;
     const script = buildWindowsCodexProcessStartScript(process.pid);
-    child = spawn(
+    const monitor = spawn(
       "powershell.exe",
       [
         "-NoProfile",
@@ -556,11 +563,12 @@ export function startCodexStartupRepairMonitor(
       ],
       { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] },
     );
+    child = monitor;
     let stderr = "";
-    child.stderr?.on("data", (chunk) => {
+    monitor.stderr?.on("data", (chunk) => {
       if (stderr.length < 2_000) stderr += String(chunk);
     });
-    const lines = readline.createInterface({ input: child.stdout! });
+    const lines = readline.createInterface({ input: monitor.stdout! });
     lines.on("line", (line) => {
       let row: {
         pid?: unknown;
@@ -591,17 +599,25 @@ export function startCodexStartupRepairMonitor(
             : null,
       });
     });
-    child.once("exit", (code) => {
+    let finished = false;
+    const finish = (code: number | null, spawnError?: Error) => {
+      if (finished) return;
+      finished = true;
       lines.close();
-      child = null;
+      if (child === monitor) child = null;
       if (!closed) {
-        const detail = stderr.trim().replace(/\s+/g, " ").slice(0, 500);
+        const detail = (spawnError?.message || stderr)
+          .trim()
+          .replace(/\s+/g, " ")
+          .slice(0, 500);
         opts.log?.warn(
           `Codex 进程启动监听器退出（${code ?? "unknown"}）${detail ? `：${detail}` : ""}，1 秒后恢复。`,
         );
         restartTimer = setTimeout(startChild, 1_000);
       }
-    });
+    };
+    monitor.once("error", (error) => finish(null, error));
+    monitor.once("exit", (code) => finish(code));
     reconcile();
   };
 
@@ -687,8 +703,8 @@ async function ensureCodexCdpUnqueued(
   const procs = await listCodexProcesses();
   const exe =
     parseExecutableFromProcess(procs[0]) ||
-    findCodexExecutable() ||
-    (await findPackagedCodexExecutable());
+    (await findPackagedCodexExecutable()) ||
+    findCodexExecutable();
   if (!exe) {
     throw new Error(
       "找不到 Codex/ChatGPT Desktop。请先安装，或用带 --remote-debugging-port=9335 的方式启动它。",
@@ -746,7 +762,7 @@ async function ensureCodexCdpUnqueued(
     log?.warn(`本机端口 ${preferred} 已被占用，Codex 改用 ${port}`);
   }
   log?.info(`带 --remote-debugging-port=${port} 启动 Codex`);
-  launchCodexWithCdp(port, exe);
+  await launchCodexWithCdp(port, exe);
   const ready = await waitForCodexCdp(port, timeoutMs);
   if (!ready) {
     throw new Error(
