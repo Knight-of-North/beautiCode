@@ -27,4 +27,3 @@ test("host data roots are namespaced and migrate legacy data by copy only", asyn
     await fs.rm(root, { recursive: true, force: true });
   }
 });
-
