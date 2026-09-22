@@ -39,6 +39,7 @@ $webProfile = Join-Path $DshHome "profiles\web"
 $webPatch = Join-Path $webProfile "cordis.patch.yml"
 $webPackage = Join-Path $webProfile "package.json"
 $homePatch = Join-Path $DshHome "cordis.patch.yml"
+$pluginPatch = Join-Path $PluginRoot "cordis.patch.yml"
 $pluginName = "beauticode-dsh"
 $legacyPluginName = "@beauticode/dsh-plugin"
 $bridgeId = "beauticode-bridge"
@@ -91,6 +92,33 @@ function Test-PatchHasBridge([string]$Text) {
   return [bool]($Text -match "(?m)^\s*-\s*id:\s*$bridgeId\s*$")
 }
 
+function Backup-DuplicateBridgePatch([string]$Path, [string]$Raw) {
+  $count = ([regex]::Matches($Raw, "(?m)^[ \t]*-[ \t]*id:[ \t]*$bridgeId[ \t]*$")).Count
+  if ($count -le 1) { return }
+  $stamp = [DateTime]::UtcNow.ToString("yyyyMMddHHmmssfff")
+  $backup = "$Path.beauticode-backup-$stamp"
+  $suffix = 0
+  while (Test-Path -LiteralPath $backup) {
+    $suffix += 1
+    $backup = "$Path.beauticode-backup-$stamp-$suffix"
+  }
+  Copy-Item -LiteralPath $Path -Destination $backup -Force:$false
+  Write-BcLog ("Backed up duplicate beauticode bridge patch to {0}" -f $backup)
+}
+
+function Backup-BridgePatch([string]$Path) {
+  if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return }
+  $stamp = [DateTime]::UtcNow.ToString("yyyyMMddHHmmssfff")
+  $backup = "$Path.beauticode-backup-$stamp"
+  $suffix = 0
+  while (Test-Path -LiteralPath $backup) {
+    $suffix += 1
+    $backup = "$Path.beauticode-backup-$stamp-$suffix"
+  }
+  Copy-Item -LiteralPath $Path -Destination $backup -Force:$false
+  Write-BcLog ("Backed up beauticode bridge patch to {0}" -f $backup)
+}
+
 function Remove-BridgeFromPatch([string]$Path) {
   if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
   $raw = [IO.File]::ReadAllText($Path)
@@ -130,6 +158,7 @@ function Write-BridgePatch([string]$Path, [string]$Body) {
     return
   }
   $raw = [IO.File]::ReadAllText($Path)
+  Backup-DuplicateBridgePatch $Path $raw
   if (Test-PatchHasBridge $raw) {
     $replaced = [regex]::Replace(
       $raw,
@@ -280,10 +309,25 @@ $webExists = Test-Path -LiteralPath $webPackage -PathType Leaf
 if ($webExists) {
   Ensure-PluginJunction
   Ensure-WebPackageDep
-  Write-BridgePatch $webPatch (Get-PackageInsert)
+  # DSH also loads a package's own cordis.patch.yml. Keep one loader entry:
+  # when the plugin ships the bridge, retain that patch and remove only our
+  # managed profile block (with a backup); otherwise install the profile entry.
+  $pluginShipsBridge = $false
+  if (Test-Path -LiteralPath $pluginPatch -PathType Leaf) {
+    $pluginShipsBridge = Test-PatchHasBridge ([IO.File]::ReadAllText($pluginPatch))
+  }
+  if ($pluginShipsBridge) {
+    if (Test-PatchHasBridge ([IO.File]::ReadAllText($webPatch))) {
+      Backup-BridgePatch $webPatch
+      [void](Remove-BridgeFromPatch $webPatch)
+    }
+  } else {
+    Write-BridgePatch $webPatch (Get-PackageInsert)
+  }
   if (Test-Path -LiteralPath $homePatch -PathType Leaf) {
     $homeRaw = [IO.File]::ReadAllText($homePatch)
     if (Test-PatchHasBridge $homeRaw) {
+      Backup-BridgePatch $homePatch
       [void](Remove-BridgeFromPatch $homePatch)
     }
   }

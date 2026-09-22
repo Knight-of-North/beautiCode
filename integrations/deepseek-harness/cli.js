@@ -90,6 +90,23 @@ function hasBridge(text) {
   return new RegExp(`^\\s*-\\s*id:\\s*${bridgeId}\\s*$`, "m").test(text);
 }
 
+function bridgeCount(text) {
+  return (String(text).match(new RegExp(`^\\s*-\\s*id:\\s*${bridgeId}\\s*$`, "gm")) || []).length;
+}
+
+async function backupPatch(filePath) {
+  const base = `${filePath}.beauticode-backup-${Date.now()}`;
+  let backup = base;
+  let suffix = 0;
+  while (fs.existsSync(backup)) backup = `${base}-${++suffix}`;
+  await fsp.copyFile(filePath, backup, fs.constants.COPYFILE_EXCL);
+  return backup;
+}
+
+async function backupDuplicatePatch(filePath) {
+  return backupPatch(filePath);
+}
+
 function stripBridge(text) {
   const lines = text.split(/\r?\n/);
   const removed = new Array(lines.length).fill(false);
@@ -183,6 +200,9 @@ async function writePatch(filePath, body) {
     return;
   }
   const raw = await fsp.readFile(filePath, "utf8");
+  if (hasBridge(raw) && bridgeCount(raw) > 1) {
+    await backupDuplicatePatch(filePath);
+  }
   const remainder = hasBridge(raw) ? stripBridge(raw) : raw;
   const kept = keptOverlay(remainder);
   const next = kept ? `${kept}\n\n${insert}` : insert;
@@ -378,7 +398,24 @@ async function install(opts) {
   if (fs.existsSync(webPackage)) {
     await linkPluginIntoProfile(webProfile, dest);
     await ensureWebPackageDep(webPackage, dest);
-    await writePatch(webPatch, packageInsert());
+    const pluginPatch = path.join(dest, "cordis.patch.yml");
+    const pluginShipsBridge =
+      fs.existsSync(pluginPatch) && hasBridge(await fsp.readFile(pluginPatch, "utf8"));
+    if (pluginShipsBridge) {
+      // DSH loads the package patch as well as the profile patch. Keep the
+      // package's canonical loader and remove only beautiCode's managed
+      // profile block, preserving unrelated profile configuration. Back up
+      // the user's profile before this repair, even when it had one entry.
+      if (fs.existsSync(webPatch)) {
+        const profilePatch = await fsp.readFile(webPatch, "utf8");
+        if (hasBridge(profilePatch)) {
+          await backupPatch(webPatch);
+          await removePatch(webPatch);
+        }
+      }
+    } else {
+      await writePatch(webPatch, packageInsert());
+    }
     if (fs.existsSync(homePatch)) {
       const homeRaw = await fsp.readFile(homePatch, "utf8");
       if (hasBridge(homeRaw)) await removePatch(homePatch);

@@ -397,7 +397,10 @@ async function launchCodexWithCdp(
   const child = spawn(command.file, command.args, {
     detached: true,
     stdio: "ignore",
-    windowsHide: true,
+    // Codex is the foreground application in this path. Only the watcher
+    // and PowerShell probes use hidden windows; do not pass a hidden-window
+    // hint to the host launch itself.
+    windowsHide: false,
   });
   await new Promise<void>((resolve, reject) => {
     child.once("spawn", resolve);

@@ -46,6 +46,7 @@ async function loadAdapter() {
   throw new Error('无法导入 @beauticode/adapter-workbuddy —— 先跑 tsc 编译该包');
 }
 const A = await loadAdapter();
+const core = await import('@beauticode/core');
 const {
   BACKGROUND_BAR_INJECTION, BACKGROUND_BAR_CLEANUP, BACKGROUND_BAR_STYLE_ID,
   buildContractCss, readTheme,
@@ -54,6 +55,7 @@ const {
   buildStyleKeeperExpression,
   pickWorkBuddyTarget, assertLoopbackDebuggerUrl, safeTargetLabel,
   ensureWorkBuddyCdp,
+  isInitialPersistState,
 } = A;
 for (const [k, v] of Object.entries({
   BACKGROUND_BAR_INJECTION, BACKGROUND_BAR_CLEANUP, buildContractCss, readTheme,
@@ -61,6 +63,7 @@ for (const [k, v] of Object.entries({
   HARDCODED_SURFACE_SCAN_EXPRESSION, buildHardcodedSurfaceCss, buildStyleKeeperExpression,
   pickWorkBuddyTarget, assertLoopbackDebuggerUrl, safeTargetLabel,
   ensureWorkBuddyCdp,
+  isInitialPersistState,
 })) {
   if (typeof v !== 'string' && typeof v !== 'function') {
     process.stderr.write(`adapter 导出形状不对：${k}\n`); process.exit(2);
@@ -174,51 +177,57 @@ el.textContent=css;return 'style:'+id;})()`;
 // 浏览器里点卡片 → /apply → 经 CDP 应用到 WorkBuddy 面板（__bcApplyBackgroundPath）。
 const GALLERY_PORT_BASE = 9337;
 const GALLERY_TOKEN = crypto.randomBytes(16).toString('hex');
-const SKIN_ID = /^skin-[a-f0-9]{8,40}$/i;
-const CENTER_URL = (() => {
-  try {
-    const raw = JSON.parse(fs.readFileSync(path.join(REPO, 'integrations', 'deepseek-harness', 'skin-center.json'), 'utf8')).url;
-    const parsed = new URL(String(raw || ''));
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
-    return parsed.href;
-  } catch { return null; }
-})();
+const SKIN_ID = core.SKIN_ID_PATTERN;
+const CENTER_URL = core.SKIN_CENTER_ORIGIN;
 const DATA_DIR = process.platform === 'win32'
   ? path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'beauticode')
   : path.join(os.homedir(), 'Library', 'Application Support', 'beauticode');
-const SKINS_DIR = path.join(DATA_DIR, 'skins');
 const STATE_FILE = path.join(DATA_DIR, 'state.json');
 const GALLERY_MEDIA = {
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp',
   '.gif': 'image/gif', '.bmp': 'image/bmp', '.avif': 'image/avif',
   '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.webm': 'video/webm', '.m4v': 'video/mp4',
 };
+const VIDEO = new Set(['.mp4', '.mov']);
 let galleryConn = null;
 let galleryPort = null;
 let galleryServer = null;
 let galleryApplyFn = null;
 const skinRegistry = new Map();
 
-function buildCatalog() {
+function mediaIdentity(info) {
+  return `${info.dev}:${info.ino}:${info.size}:${info.mtimeMs}:${info.ctimeMs}`;
+}
+
+function assertStableMedia(file, expectedIdentity) {
+  const logical = path.resolve(String(file || ''));
+  const logicalInfo = fs.lstatSync(logical);
+  if (logicalInfo.isSymbolicLink()) throw new Error('媒体路径不能是符号链接。');
+  const resolved = fs.realpathSync.native(logical);
+  const info = fs.lstatSync(resolved);
+  if (info.isSymbolicLink() || !info.isFile()) throw new Error('媒体路径不是普通文件。');
+  if (expectedIdentity && mediaIdentity(info) !== expectedIdentity) {
+    throw new Error('媒体文件在应用前发生变化。');
+  }
+  return { path: resolved, identity: mediaIdentity(info) };
+}
+
+async function validateLocalMedia(file) {
+  const logical = path.resolve(String(file || ''));
+  const ext = path.extname(logical).toLowerCase();
+  if (!GALLERY_MEDIA[ext]) throw new Error('不支持的媒体格式。');
+  const first = assertStableMedia(logical);
+  const checked = VIDEO.has(ext)
+    ? await core.validateVideoFile(first.path, { mode: 'fast' })
+    : await core.validateImageFile(first.path, { mode: 'fast' });
+  const stable = assertStableMedia(checked.filePath, first.identity);
+  return { path: stable.path, identity: stable.identity };
+}
+
+async function buildCatalog() {
   skinRegistry.clear();
-  const skins = [];
-  const add = (p, name) => {
-    const ext = path.extname(p).toLowerCase();
-    if (!GALLERY_MEDIA[ext] || !fs.existsSync(p)) return;
-    const id = 'skin-' + crypto.createHash('sha1').update(p).digest('hex').slice(0, 12);
-    skinRegistry.set(id, p);
-    skins.push({ id, name, type: ['.mp4', '.mov', '.webm', '.m4v'].includes(ext) ? 'video' : 'image' });
-  };
-  const themeDir = path.join(REPO, 'assets', 'themes', 'internal-beyond');
-  const bundled = {
-    'bg-canvas-4k.png': '内置 · 画布 4K', 'bg-canvas.png': '内置 · 画布',
-    'bg-infernal.jpg': '内置 · 炼狱', 'bg-internal.jpg': '内置 · 内在',
-  };
-  try { for (const f of fs.readdirSync(themeDir)) if (bundled[f]) add(path.join(themeDir, f), bundled[f]); } catch { /* 素材目录缺失 */ }
-  try {
-    fs.mkdirSync(SKINS_DIR, { recursive: true });
-    for (const f of fs.readdirSync(SKINS_DIR)) add(path.join(SKINS_DIR, f), f.replace(/\.[^.]+$/, ''));
-  } catch { /* 用户目录不可读 */ }
+  const skins = await core.listApprovedSkins();
+  for (const skin of skins) skinRegistry.set(skin.id, skin);
   return skins;
 }
 
@@ -314,27 +323,30 @@ function startGalleryServer(applyFn) {
     if (req.method === 'OPTIONS') { res.statusCode = 204; res.end(); return; }
     res.setHeader('content-type', 'application/json; charset=utf-8');
 
+    const tokenOk = requestToken(req, u, null) === GALLERY_TOKEN;
+    res.setHeader('referrer-policy', 'no-referrer');
+    res.setHeader('cache-control', 'no-store');
+    if (!tokenOk) { deny(res, 403, 'bad token'); return; }
+
     if (u.pathname === '/beauticode/gallery' || u.pathname === '/') {
       res.setHeader('content-type', 'text/html; charset=utf-8');
       res.end(galleryPage());
       return;
     }
 
-    const tokenOk = requestToken(req, u, null) === GALLERY_TOKEN;
-
     if (u.pathname === '/api/catalog') {
-      if (!tokenOk) { deny(res, 403, 'bad token'); return; }
-      res.end(JSON.stringify({ skins: buildCatalog() }));
+      buildCatalog().then((skins) => res.end(JSON.stringify({ skins, url: CENTER_URL }))).catch((error) => deny(res, 502, error.message));
       return;
     }
     if (u.pathname === '/media') {
-      if (!tokenOk) { deny(res, 403, 'bad token'); return; }
       const id = u.searchParams.get('id') || '';
-      if (!SKIN_ID.test(id)) { deny(res, 400, 'bad id'); return; }
-      const file = skinRegistry.get(id);
-      if (!file || !fs.existsSync(file)) { deny(res, 404, 'unknown id'); return; }
-      res.setHeader('content-type', GALLERY_MEDIA[path.extname(file).toLowerCase()] || 'application/octet-stream');
-      fs.createReadStream(file).pipe(res);
+      if (!core.isSafeSkinId(id)) { deny(res, 400, 'bad id'); return; }
+      Promise.resolve(skinRegistry.get(id) || core.getApprovedSkin(id)).then(async (skin) => {
+        skinRegistry.set(id, skin);
+        const download = await core.downloadApprovedAsset(skin, 'image', { directory: path.join(DATA_DIR, 'tmp', 'gallery') });
+        res.setHeader('content-type', download.contentType || 'application/octet-stream');
+        fs.createReadStream(download.filePath).on('close', () => fs.rmSync(download.tempDir, { recursive: true, force: true })).pipe(res);
+      }).catch((error) => deny(res, 502, error.message));
       return;
     }
     if (u.pathname === '/apply') {
@@ -346,18 +358,47 @@ function startGalleryServer(applyFn) {
         if (n > 4096) { req.destroy(); return; }
         chunks.push(c);
       });
-      req.on('end', () => {
+      req.on('end', async () => {
         let body = {};
         try { body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'); } catch { body = {}; }
         if (requestToken(req, u, body) !== GALLERY_TOKEN) { deny(res, 403, 'bad token'); return; }
         const id = String(body.id || '');
-        if (!SKIN_ID.test(id)) { deny(res, 400, 'bad id'); return; }
-        const file = skinRegistry.get(id);
-        if (!file) { deny(res, 404, 'unknown id'); return; }
+        if (!core.isSafeSkinId(id)) { deny(res, 400, 'bad id'); return; }
+        const skin = skinRegistry.get(id) || await core.getApprovedSkin(id).catch((error) => { deny(res, 502, error.message); return null; });
+        if (!skin) return;
         if (!galleryConn || !galleryApplyFn) { deny(res, 503, '守护未连接 WorkBuddy'); return; }
-        galleryApplyFn(file)
-          .then(() => { log.info(`皮肤商城：已应用 ${path.basename(file)}`); res.end(JSON.stringify({ ok: true, name: path.basename(file) })); })
-          .catch((e) => { deny(res, 500, e.message); });
+        let download;
+        try {
+          download = await core.downloadApprovedAsset(skin, skin.type, { directory: path.join(DATA_DIR, 'tmp', 'gallery') });
+        } catch (error) {
+          deny(res, 502, error instanceof Error ? error.message : '皮肤资源下载失败');
+          return;
+        }
+        const persistentDir = path.join(DATA_DIR, 'themes');
+        fs.mkdirSync(persistentDir, { recursive: true });
+        const persistent = path.join(persistentDir, `${skin.sourceSkinId}${path.extname(download.filePath)}`);
+        const backup = `${persistent}.previous-${process.pid}-${Date.now()}`;
+        let hadPrevious = false;
+        let committed = false;
+        try {
+          if (fs.existsSync(persistent)) { fs.renameSync(persistent, backup); hadPrevious = true; }
+          fs.renameSync(download.filePath, persistent);
+          await galleryApplyFn({
+            file: persistent,
+            name: skin.name,
+            provenance: { source: skin.source, sourceSkinId: skin.sourceSkinId, sourceVersion: skin.sourceVersion },
+          });
+          committed = true;
+          log.info(`皮肤商城：已应用 ${skin.name}`);
+          res.end(JSON.stringify({ ok: true, name: skin.name }));
+        } catch (error) {
+          try { fs.rmSync(persistent, { force: true }); } catch {}
+          if (hadPrevious) { try { fs.renameSync(backup, persistent); } catch {} }
+          deny(res, 500, error.message);
+        } finally {
+          fs.rmSync(download.tempDir, { recursive: true, force: true });
+          if (committed || !hadPrevious) fs.rmSync(backup, { force: true });
+        }
       });
       return;
     }
@@ -397,15 +438,41 @@ const ALPHA_VARIFY = (css) =>
   css.split(' 82%, transparent)').join(' var(--bc-surface-alpha-pct, 82%), transparent)');
 
 function isBlankPersistState(live) {
-  return !live || (
-    !live.wallpaper && !live.cleared && !live.blob &&
-    live.dim == null && live.blur == null && live.alpha == null &&
-    (!Array.isArray(live.themes) || live.themes.length === 0) &&
-    !live.activeThemeId
-  );
+  // Keep the explicit legacy-shape check here: an array containing saved
+  // themes is never considered hydration-blank, even if other fields are
+  // still at their renderer defaults.
+  const themesEmpty = !live || !Array.isArray(live.themes) || live.themes.length === 0;
+  return themesEmpty && isInitialPersistState(live);
 }
 
-async function applyAll(c) {
+function galleryConfigExpression() {
+  return `window.__bcUpdateGalleryConfig && window.__bcUpdateGalleryConfig(${JSON.stringify({
+    port: galleryPort,
+    token: GALLERY_TOKEN,
+    centerUrl: CENTER_URL,
+  })})`;
+}
+
+async function injectBackgroundUi(c) {
+  const ui = await evaluate(c, BACKGROUND_BAR_INJECTION
+    .replace(/__BC_GALLERY_PORT__/g, String(galleryPort || GALLERY_PORT_BASE))
+    .replace(/__BC_GALLERY_TOKEN__/g, JSON.stringify(GALLERY_TOKEN))
+    .replace(/__BC_CENTER_URL__/g, JSON.stringify(CENTER_URL || '')));
+  log.info('UI ✓（' + JSON.stringify(ui) + '）');
+  return ui;
+}
+
+async function updateGalleryConfig(c) {
+  if (!galleryPort) return false;
+  try {
+    return await evaluate(c, galleryConfigExpression());
+  } catch (error) {
+    log.debug('皮肤商城配置回填失败：' + error.message);
+    return false;
+  }
+}
+
+async function applyAll(c, options = {}) {
   // 1) 主题（fail-closed：读不出就不上 CSS，只上 UI 并说明原因）
   const className = await evaluate(c, 'document.documentElement.className');
   const theme = readTheme(String(className || ''));
@@ -467,12 +534,9 @@ async function applyAll(c) {
   //    停掉我方的，并叫停页面里已装的实例。
   await evaluate(c, "window.__bcKeepStylesLast && window.__bcKeepStylesLast.stop && window.__bcKeepStylesLast.stop(); 'keeper-stopped'");
 
-  // 6) UI（侧栏条目 + 面板 + 舞台；皮肤中心浮窗的端口/中心URL占位符在此注入）
-  const ui = await evaluate(c, BACKGROUND_BAR_INJECTION
-    .replace(/__BC_GALLERY_PORT__/g, String(galleryPort || 9337))
-    .replace(/__BC_GALLERY_TOKEN__/g, JSON.stringify(GALLERY_TOKEN))
-    .replace(/__BC_CENTER_URL__/g, JSON.stringify(CENTER_URL || '')));
-  log.info('UI ✓（' + JSON.stringify(ui) + '）');
+  // 6) UI is normally mounted before this full scan (see session()). Keep a
+  // self-healing fallback for target remounts and older callers.
+  const ui = options.injectUi === false ? 'already-mounted' : await injectBackgroundUi(c);
 
   // 7) 默认壁纸：舞台没有媒体（既无背景图也无视频）时铺上内置壁纸。
   //    用户自己导入的 blob:/file:/用户路径不受影响；「清除背景」后也不会被顶回
@@ -546,7 +610,9 @@ function startWatcher(c, state) {
       const fpTheme = String(v.theme || '');
       if (v.nav && !v.entry) {
         log.warn('entry 丢失（侧栏重挂），重新应用完整序列');
-        await applyAll(c);
+        await injectBackgroundUi(c);
+        await updateGalleryConfig(c);
+        await applyAll(c, { injectUi: false });
       } else if (state.lastThemeFp && fpTheme !== state.lastThemeFp) {
         log.info('主题切换 → 重扫 token 覆盖层');
         await applyAll(c);
@@ -688,6 +754,9 @@ function startPickWatcher(c) {
         await evaluate(c, 'window.__bcBackgroundMsg && window.__bcBackgroundMsg("已取消选择。")');
         return;
       }
+      const checked = await validateLocalMedia(picked);
+      picked = checked.path;
+      assertStableMedia(picked, checked.identity);
       log.info('已选择：' + picked.slice(-60));
       // DSH/Codex 回落路径：不走 file://（视频/权限不可靠），
       // 用 DOM.setFileInputFiles 把真实 File 塞进隐藏 input，再派发 change，
@@ -704,6 +773,7 @@ function startPickWatcher(c) {
       if (!q.result?.nodeId && !q.nodeId) throw new Error('找不到隐藏的文件输入框');
       const nodeId = q.result?.nodeId || q.nodeId;
       await c.send('DOM.setFileInputFiles', { files: [picked], nodeId });
+      assertStableMedia(picked, checked.identity);
       await evaluate(c,
         'document.querySelector(\'#beauticode-workbuddy-bg-panel [data-id="fileInput"]\')' +
         '.dispatchEvent(new Event("change", { bubbles: true }));');
@@ -726,10 +796,15 @@ async function session() {
 
   const state = { lastThemeFp: '', panelOpen: false };
   galleryConn = c;
-  await startGalleryServer(async (file) => {
-    await evaluate(c, 'window.__bcApplyBackgroundPath && window.__bcApplyBackgroundPath(' + JSON.stringify(file) + ')');
+  const galleryReady = startGalleryServer(async (selection) => {
+    await evaluate(c, 'window.__bcApplyBackgroundPath && window.__bcApplyBackgroundPath(' + JSON.stringify(selection.file) + ',' + JSON.stringify({ themeName: selection.name, provenance: selection.provenance }) + ')');
   });
-  await applyAll(c);
+  // Mount the entry as soon as the target is usable. Catalog listener setup
+  // and the expensive token/surface scans continue in parallel; a late port
+  // choice is pushed into the already-mounted entry below.
+  await injectBackgroundUi(c);
+  void galleryReady.then(() => updateGalleryConfig(c));
+  await applyAll(c, { injectUi: false });
 
   if (args.once) { c.close(); process.exit(0); }
 

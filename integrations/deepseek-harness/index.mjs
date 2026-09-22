@@ -39,7 +39,7 @@ function defaultTokenFile() {
     (process.env.LOCALAPPDATA
       ? path.join(process.env.LOCALAPPDATA, "beautiCode")
       : path.join(os.homedir(), ".beauticode"));
-  return path.join(base, "dsh-bridge.token");
+  return path.join(base, "hosts", "dsh", "dsh-bridge.token");
 }
 
 function sendJson(res, status, body) {

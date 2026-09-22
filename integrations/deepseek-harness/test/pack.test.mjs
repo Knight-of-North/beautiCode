@@ -42,3 +42,39 @@ test("npx installer writes a DSH home patch without a web profile", async () => 
   await assert.rejects(() => fs.access(pluginHome));
   await fs.rm(root, { recursive: true, force: true });
 });
+
+test("installer backs up and deduplicates its own duplicate loader entries", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "bc-dsh-dedupe-"));
+  try {
+    const dshHome = path.join(root, "dsh");
+    const web = path.join(dshHome, "profiles", "web");
+    const pluginHome = path.join(root, "plugin");
+    await fs.mkdir(web, { recursive: true });
+    await fs.writeFile(path.join(web, "package.json"), JSON.stringify({ dependencies: {} }), "utf8");
+    await fs.writeFile(path.join(web, "cordis.patch.yml"), [
+      "- insert:",
+      "    - id: unrelated-plugin",
+      "      name: unrelated",
+      "    - id: beauticode-bridge",
+      "      name: old-a",
+      "      inject: [webServer]",
+      "- insert:",
+      "    - id: beauticode-bridge",
+      "      name: old-b",
+      "      inject: [webServer]",
+      "",
+    ].join("\n"), "utf8");
+    await runCli(["--dsh-home", dshHome, "--plugin-home", pluginHome]);
+    const patch = await fs.readFile(path.join(web, "cordis.patch.yml"), "utf8");
+    // The plugin package carries the canonical loader. The profile must not
+    // retain a second managed loader, but unrelated profile entries survive.
+    assert.equal((patch.match(/id:\s*beauticode-bridge/g) || []).length, 0);
+    assert.match(patch, /id:\s*unrelated-plugin/);
+    const pluginPatch = await fs.readFile(path.join(pluginHome, "cordis.patch.yml"), "utf8");
+    assert.equal((pluginPatch.match(/id:\s*beauticode-bridge/g) || []).length, 1);
+    const backups = (await fs.readdir(web)).filter((name) => name.includes("beauticode-backup"));
+    assert.equal(backups.length, 1);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});

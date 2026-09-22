@@ -44,6 +44,7 @@ export {
   BACKGROUND_BAR_STYLE_ID,
   BACKGROUND_BAR_VERSION,
 } from "./background-bar.js";
+export { isInitialPersistState } from "./persist-state.js";
 export {
   MAX_CDP_JSON_BYTES,
   WORKBUDDY_CDP_ENV_KEY,

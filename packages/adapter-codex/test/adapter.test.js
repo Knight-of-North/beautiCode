@@ -1064,6 +1064,10 @@ test("fish mode CSS and runtime expose data-bc-fish helpers", async () => {
   assert.match(runtime, /wantImageBlob/);
   assert.match(runtime, /videoEl\.style\.opacity = ""/);
   assert.match(runtime, /Promise\.resolve\(videoEl\.play\?\.\(\)\)/);
+  assert.match(runtime, /const imageReady =/);
+  assert.match(runtime, /const mediaReady = videoEnabled/);
+  assert.match(runtime, /waitForImageReady/);
+  assert.match(runtime, /Never make the host transparent while a replacement is still decoding/);
   assert.doesNotMatch(
     runtime,
     /Promise\.resolve\(\)\s*\.then\(apply\)\s*\.catch\([\s\S]{0,240}\)\s*;\s*return \{ installed: true/,

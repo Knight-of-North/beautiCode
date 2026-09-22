@@ -23,6 +23,7 @@ import {
   pickWorkBuddyTarget,
   readTheme,
   safeTargetLabel,
+  isInitialPersistState,
 } from "../dist/index.js";
 
 /** Exactly the shape measured on WorkBuddy 5.5.6 (query trimmed for readability). */
@@ -51,7 +52,40 @@ test("background bar requires a name and exposes persisted themes", () => {
   assert.match(BACKGROUND_BAR_INJECTION, /PERSIST\.themes/);
   assert.match(BACKGROUND_BAR_INJECTION, /activeThemeId/);
   assert.match(BACKGROUND_BAR_INJECTION, /applyPath\(theme\.path, theme\.id\)/);
+  assert.match(BACKGROUND_BAR_INJECTION, /__bcUpdateGalleryConfig/);
+  assert.match(BACKGROUND_BAR_INJECTION, /galLoad\(\)/);
   assert.doesNotThrow(() => new Function(BACKGROUND_BAR_INJECTION));
+  assert.match(BACKGROUND_BAR_INJECTION, /dimSlider\.value = '49'/);
+  assert.match(BACKGROUND_BAR_INJECTION, /alphaSlider\.value = '100'/);
+  assert.match(BACKGROUND_BAR_INJECTION, /dim: 49/);
+  assert.match(BACKGROUND_BAR_INJECTION, /alpha: 100/);
+});
+
+test("startup defaults are hydration-blank and must not overwrite a saved theme", () => {
+  assert.equal(
+    isInitialPersistState({
+      wallpaper: null,
+      dim: 49,
+      blur: 0,
+      alpha: 100,
+      cleared: false,
+      themes: [],
+      activeThemeId: null,
+    }),
+    true,
+  );
+  assert.equal(
+    isInitialPersistState({
+      wallpaper: "C:\\\\Users\\\\test\\\\background.png",
+      dim: 49,
+      blur: 0,
+      alpha: 100,
+      cleared: false,
+      themes: [{ id: "theme-1", name: "Saved", path: "C:\\\\Users\\\\test\\\\background.png", type: "image" }],
+      activeThemeId: "theme-1",
+    }),
+    false,
+  );
 });
 
 test("target matching ignores the query string but keeps scheme and path", () => {
