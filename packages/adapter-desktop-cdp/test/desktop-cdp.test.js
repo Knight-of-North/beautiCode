@@ -13,6 +13,7 @@ import {
   parseRemoteDebuggingFlags,
   probeDesktopCdp,
   repairDesktopProcess,
+  waitForDesktopCdp,
 } from '../dist/index.js';
 
 const spec = {
@@ -283,6 +284,30 @@ test('probe rejects an oversized CDP response before parsing it', async () => {
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   try { assert.equal(await probeDesktopCdp(spec, server.address().port), null); }
   finally { await new Promise((resolve) => server.close(resolve)); }
+});
+
+test('desktop target polling uses a 150ms fake-clock cadence after a 220ms probe', async () => {
+  let now = 0;
+  let calls = 0;
+  const sleeps = [];
+  const target = {
+    id: '1', type: 'page', url: spec.targetUrl,
+    webSocketDebuggerUrl: 'ws://127.0.0.1:9341/devtools/page/1',
+  };
+  const found = await waitForDesktopCdp(spec, [9341], 1_000, {
+    now: () => now,
+    discover: async () => {
+      calls += 1;
+      if (calls === 1) { now += 220; return null; }
+      return now >= 220
+        ? { port: 9341, browserUrl: 'http://127.0.0.1:9341', browser: 'Chrome/fake', target }
+        : null;
+    },
+    sleep: async (ms) => { sleeps.push(ms); now += ms; },
+  });
+  assert.equal(found?.target.url, spec.targetUrl);
+  assert.deepEqual(sleeps, [150]);
+  assert.equal(now, 370);
 });
 
 test('desktop renderer scopes host surfaces to active media and uses shared defaults', () => {

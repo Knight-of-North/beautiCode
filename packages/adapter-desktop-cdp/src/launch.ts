@@ -18,6 +18,7 @@ import type {
 
 const execFileAsync = promisify(execFile);
 export const DEFAULT_DESKTOP_REPAIR_WINDOW_MS = 10_000;
+export const DEFAULT_DESKTOP_CDP_POLL_INTERVAL_MS = 150;
 
 export type DesktopStartupDecision =
   | "repair-now"
@@ -677,12 +678,21 @@ export async function waitForDesktopCdp(
   spec: DesktopCdpHostSpec,
   ports: readonly number[],
   timeoutMs: number,
+  options: {
+    discover?: typeof discoverDesktopCdp;
+    sleep?: (ms: number) => Promise<void>;
+    now?: () => number;
+  } = {},
 ): Promise<DesktopCdpEndpoint | null> {
-  const deadline = Date.now() + Math.max(1_000, timeoutMs);
-  while (Date.now() < deadline) {
-    const found = await discoverDesktopCdp(spec, ports);
+  const discover = options.discover ?? discoverDesktopCdp;
+  const sleep =
+    options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const now = options.now ?? Date.now;
+  const deadline = now() + Math.max(1_000, timeoutMs);
+  while (now() < deadline) {
+    const found = await discover(spec, ports);
     if (found) return found;
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    await sleep(DEFAULT_DESKTOP_CDP_POLL_INTERVAL_MS);
   }
   return null;
 }

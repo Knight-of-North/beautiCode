@@ -61,6 +61,14 @@ test("background bar requires a name and exposes persisted themes", () => {
   assert.match(BACKGROUND_BAR_INJECTION, /alpha: 100/);
 });
 
+test("background injection is idempotent and rebuilds after a host remount", () => {
+  assert.match(BACKGROUND_BAR_INJECTION, /window\.__bcBackgroundDemoInstalled/);
+  assert.match(BACKGROUND_BAR_INJECTION, /data-bc-bg-ver/);
+  assert.match(BACKGROUND_BAR_INJECTION, /document\.getElementById\(BC \+ '-entry'\)/);
+  assert.match(BACKGROUND_BAR_INJECTION, /querySelectorAll\('\[data-bc-injected=/);
+  assert.match(BACKGROUND_BAR_INJECTION, /if \(moreBtn\) tabs\.insertBefore\(btn, moreBtn\)/);
+});
+
 test("startup defaults are hydration-blank and must not overwrite a saved theme", () => {
   assert.equal(
     isInitialPersistState({

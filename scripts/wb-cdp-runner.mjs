@@ -55,6 +55,7 @@ const {
   buildStyleKeeperExpression,
   pickWorkBuddyTarget, assertLoopbackDebuggerUrl, safeTargetLabel,
   ensureWorkBuddyCdp,
+  listWorkBuddyProcesses, selectWorkBuddyReconnectDelay,
   isInitialPersistState,
 } = A;
 for (const [k, v] of Object.entries({
@@ -63,6 +64,7 @@ for (const [k, v] of Object.entries({
   HARDCODED_SURFACE_SCAN_EXPRESSION, buildHardcodedSurfaceCss, buildStyleKeeperExpression,
   pickWorkBuddyTarget, assertLoopbackDebuggerUrl, safeTargetLabel,
   ensureWorkBuddyCdp,
+  listWorkBuddyProcesses, selectWorkBuddyReconnectDelay,
   isInitialPersistState,
 })) {
   if (typeof v !== 'string' && typeof v !== 'function') {
@@ -182,6 +184,31 @@ const CENTER_URL = core.SKIN_CENTER_ORIGIN;
 const DATA_DIR = process.platform === 'win32'
   ? path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'beauticode')
   : path.join(os.homedir(), 'Library', 'Application Support', 'beauticode');
+const ENV_KEY = 'WORKBUDDY_REMOTE_DEBUGGING_PORT';
+const PORT_FILE = path.join(DATA_DIR, 'workbuddy-port.json');
+const RUNNER_PID_FILE = path.join(DATA_DIR, 'wb-runner.pid');
+function readConfiguredPort() {
+  try {
+    const value = JSON.parse(fs.readFileSync(PORT_FILE, 'utf8')).port;
+    const port = Number(value);
+    return Number.isInteger(port) && port >= 1 && port <= 65535 ? port : null;
+  } catch { return null; }
+}
+let lastPersistedPort = readConfiguredPort();
+function persistPortSelection(port) {
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return;
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  const next = JSON.stringify({ port, updatedAt: new Date().toISOString() }) + '\n';
+  try { fs.writeFileSync(PORT_FILE, next, { encoding: 'utf8', mode: 0o600 }); } catch { /* best effort */ }
+  if (process.platform === 'win32' && lastPersistedPort !== port) {
+    lastPersistedPort = port;
+    execFile('setx', [ENV_KEY, String(port)], { windowsHide: true }, () => {});
+  }
+}
+if (!args.port) {
+  const configured = readConfiguredPort();
+  if (configured) PORT = configured;
+}
 const STATE_FILE = path.join(DATA_DIR, 'state.json');
 const GALLERY_MEDIA = {
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp',
@@ -844,6 +871,15 @@ async function runWatchdog() {
   }
   let child = null;
   let stopping = false;
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  try { fs.writeFileSync(RUNNER_PID_FILE, String(process.pid) + '\n', 'utf8'); } catch { /* best effort */ }
+  const releasePid = () => {
+    try {
+      if (fs.readFileSync(RUNNER_PID_FILE, 'utf8').trim() === String(process.pid)) {
+        fs.rmSync(RUNNER_PID_FILE, { force: true });
+      }
+    } catch { /* already gone */ }
+  };
   const start = () => {
     if (stopping) return;
     const childArgs = process.argv.slice(2).filter((a) => a !== '--watchdog');
@@ -860,6 +896,7 @@ async function runWatchdog() {
   };
   const stop = () => {
     stopping = true;
+    releasePid();
     if (child?.pid) {
       try { process.kill(child.pid, 'SIGTERM'); } catch { /* already gone */ }
     }
@@ -867,6 +904,7 @@ async function runWatchdog() {
   };
   process.on('SIGINT', stop);
   process.on('SIGTERM', stop);
+  process.on('exit', releasePid);
   start();
   await new Promise(() => {});
 }
@@ -889,7 +927,9 @@ async function main() {
         timeoutMs: args.once ? 15_000 : 40_000,
         log,
       });
+      const previousPort = PORT;
       PORT = ensured.port;
+      if (PORT !== previousPort) persistPortSelection(PORT);
       if (ensured.launched || ensured.restarted) {
         log.info(`WorkBuddy CDP 已就绪：127.0.0.1:${PORT}${ensured.restarted ? '（已重启）' : '（已启动）'}`);
       }
@@ -899,6 +939,7 @@ async function main() {
     }
   }
   for (;;) {
+    let reconnectDelayMs = 3_000;
     try {
       log.info(`连接 http://127.0.0.1:${PORT} …`);
       await session();
@@ -907,23 +948,31 @@ async function main() {
       log.warn('连接断开（' + e.message.slice(0, 80) + '），3s 后重试');
       if (!args.noLaunch) {
         try {
-          const ensured = await ensureWorkBuddyCdp({
-            preferredPort: PORT,
-            launch: true,
-            launchIfMissing: false,
-            restartIfBlind: true,
-            repairWindowMs: 10_000,
-            timeoutMs: 20_000,
-            log,
-          });
-          PORT = ensured.port;
+          const processes = await listWorkBuddyProcesses();
+          reconnectDelayMs = selectWorkBuddyReconnectDelay(processes);
+          // A missing process is an intentional user close: keep the idle
+          // cadence and never ask ensureWorkBuddyCdp to launch it.
+          if (processes.length > 0) {
+            const ensured = await ensureWorkBuddyCdp({
+              preferredPort: PORT,
+              launch: true,
+              launchIfMissing: false,
+              restartIfBlind: true,
+              repairWindowMs: 10_000,
+              timeoutMs: 20_000,
+              log,
+            });
+            const previousPort = PORT;
+            PORT = ensured.port;
+            if (PORT !== previousPort) persistPortSelection(PORT);
+          }
         } catch (ensureErr) {
           log.warn('WorkBuddy 尚未恢复：' + ensureErr.message.slice(0, 120));
         }
       }
     }
     if (args.once) process.exit(0);
-    await new Promise((r) => setTimeout(r, 3000));
+    await new Promise((r) => setTimeout(r, reconnectDelayMs));
   }
 }
 main().catch((e) => { log.error('fatal: ' + (e.stack || e.message)); process.exit(1); });

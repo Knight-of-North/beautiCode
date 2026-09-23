@@ -28,6 +28,21 @@ test("staged npm plugin is a self-contained DSH bundle with a vendored engine", 
   await fs.rm(dest, { recursive: true, force: true });
 });
 
+test("staged DSH root export resolves its vendored core without a workspace", async () => {
+  const dest = path.join(os.tmpdir(), `bc-dsh-root-export-${process.pid}`);
+  try {
+    await stageDshPlugin(dest, { build: false });
+    const plugin = await import(pathToFileURL(path.join(dest, "index.mjs")).href);
+    assert.equal(plugin.name, "beauticode-bridge");
+    assert.equal(plugin.bridgeProtocol, 4);
+    for (const name of ["gallery-host.mjs", "control-client.mjs"]) {
+      assert.doesNotMatch(await fs.readFile(path.join(dest, name), "utf8"), /@beauticode\/core/);
+    }
+  } finally {
+    await fs.rm(dest, { recursive: true, force: true });
+  }
+});
+
 test("npx installer writes a DSH home patch without a web profile", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "bc-dsh-npx-"));
   const dshHome = path.join(root, "dsh");

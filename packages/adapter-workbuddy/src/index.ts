@@ -50,15 +50,21 @@ export {
   WORKBUDDY_CDP_ENV_KEY,
   DEFAULT_WORKBUDDY_CDP_PORT,
   DEFAULT_WORKBUDDY_CDP_PORTS,
+  workBuddyCdpPortCandidates,
+  selectWorkBuddyCdpPort,
   parseRemoteDebuggingFlags,
   readBoundedJson,
   probeCdpPort,
+  probeForeignCdp,
   probeWorkBuddyCdp,
   discoverWorkBuddyCdp,
   type DiscoveredWorkBuddyCdp,
 } from "./discovery.js";
 export {
   DEFAULT_WORKBUDDY_REPAIR_WINDOW_MS,
+  DEFAULT_WORKBUDDY_CDP_POLL_INTERVAL_MS,
+  DEFAULT_WORKBUDDY_FAST_RECONNECT_DELAY_MS,
+  DEFAULT_WORKBUDDY_IDLE_RECONNECT_DELAY_MS,
   classifyWorkBuddyStartupProcess,
   isWorkBuddyMainProcess,
   parsePsElapsedSeconds,
@@ -70,8 +76,11 @@ export {
   stopWorkBuddyProcesses,
   launchWorkBuddyWithCdp,
   ensureWorkBuddyCdp,
+  waitForWorkBuddyCdp,
+  selectWorkBuddyReconnectDelay,
   type WorkBuddyProcess,
   type EnsureWorkBuddyCdpOptions,
+  type EnsureWorkBuddyCdpHooks,
   type EnsuredWorkBuddyCdp,
 } from "./launch.js";
 export {
