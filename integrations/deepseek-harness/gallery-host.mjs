@@ -227,7 +227,17 @@ export function createGalleryHandlers({ dataRoot, actions }) {
         res.writeHead(403).end();
         return;
       }
-      const body = await readJson(req);
+      // readJson 拒绝（400/413）时直接应答，避免错误冒泡成框架 500。
+      let body;
+      try {
+        body = await readJson(req);
+      } catch (error) {
+        sendJson(res, error?.statusCode ?? 400, {
+          ok: false,
+          error: error?.message || "请求无效。",
+        });
+        return;
+      }
       const id = String(body.id ?? "").trim();
       if (!isSafeSkinId(id)) {
         sendJson(res, 400, { ok: false, error: "皮肤 ID 无效。" });

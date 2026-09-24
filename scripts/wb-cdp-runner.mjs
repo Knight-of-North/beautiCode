@@ -143,10 +143,25 @@ function openWs(wsUrl) {
     let id = 0;
     const pending = new Map();
     const handlers = [];
+    const SEND_TIMEOUT_MS = 15_000;
+    // 与 desktop-cdp-runner 同款硬化：每个请求带超时并在到时移出 pending；
+    // 连接断开时统一定损。否则 WorkBuddy 渲染进程异常半开时 Runtime.evaluate
+    // 永不 settle，watcher 的 inflight 卡死、面板静默失效。
     const send = (method, params = {}) => new Promise((res, rej) => {
-      const i = ++id; pending.set(i, { res, rej });
+      const i = ++id;
+      const timer = setTimeout(() => {
+        if (pending.delete(i)) rej(new Error(`CDP ${method} 超时（${SEND_TIMEOUT_MS}ms）。`));
+      }, SEND_TIMEOUT_MS);
+      pending.set(i, {
+        res: (value) => { clearTimeout(timer); res(value); },
+        rej: (error) => { clearTimeout(timer); rej(error); },
+      });
       ws.send(JSON.stringify({ id: i, method, params }));
     });
+    const failAllPending = (error) => {
+      for (const task of pending.values()) task.rej(error);
+      pending.clear();
+    };
     ws.addEventListener('message', (ev) => {
       let m; try { m = JSON.parse(ev.data); } catch { return; }
       if (m.id && pending.has(m.id)) {
@@ -158,7 +173,11 @@ function openWs(wsUrl) {
     });
     const onEvent = (cb) => handlers.push(cb);
     ws.addEventListener('open', () => resolve({ ws, send, onEvent, close: () => ws.close() }));
-    ws.addEventListener('error', (e) => reject(new Error(`WS error: ${e.message || e}`)));
+    ws.addEventListener('error', () => {
+      failAllPending(new Error('CDP WebSocket 连接失败。'));
+      reject(new Error('CDP WebSocket 连接失败。'));
+    });
+    ws.addEventListener('close', () => failAllPending(new Error('CDP 连接已关闭。')));
   });
 }
 async function evaluate(c, expression) {
@@ -411,6 +430,9 @@ function startGalleryServer(applyFn) {
         }
         const persistentDir = path.join(DATA_DIR, 'themes');
         fs.mkdirSync(persistentDir, { recursive: true });
+        // 纵深防御：id 在路由层已过白名单，但 sourceSkinId 来自远端 catalog
+        // 缓存对象，落盘前必须独立复验，防止拼进文件名。
+        if (!SKIN_ID.test(skin.sourceSkinId)) { deny(res, 400, 'bad skin id'); return; }
         const persistent = path.join(persistentDir, `${skin.sourceSkinId}${path.extname(download.filePath)}`);
         const backup = `${persistent}.previous-${process.pid}-${Date.now()}`;
         let hadPrevious = false;
@@ -694,9 +716,14 @@ function startWatcher(c, state) {
       // （空白样本 = 刚重装/刚刷新的初始态，覆盖会把已存壁纸冲掉——实测踩过）
       if (v.persist && v.persist !== state.lastPersist) {
         if (!blankLive) {
-          fs.mkdirSync(path.dirname(STATE_FILE), { recursive: true });
-          fs.writeFileSync(STATE_FILE, v.persist);
-          log.info('状态已保存 ✓（' + v.persist.slice(0, 110) + '）');
+          // 页面来的字符串落盘前设上限：被污染的页面状态不能写爆磁盘
+          if (Buffer.byteLength(v.persist) <= 256 * 1024) {
+            fs.mkdirSync(path.dirname(STATE_FILE), { recursive: true });
+            fs.writeFileSync(STATE_FILE, v.persist);
+            log.info('状态已保存 ✓（' + v.persist.slice(0, 110) + '）');
+          } else {
+            log.warn('页面持久化状态超过 256KB，拒绝写盘。');
+          }
         }
         state.lastPersist = v.persist;
       }
@@ -854,9 +881,20 @@ async function session() {
   activeSession = { c, poll, pickPoll };
   log.info('守护运行中（1.5s 轮询 + 150ms 取件轮询 + 断线重连）；Ctrl+C 清理并退出');
 
-  await new Promise((resolve, reject) => {
-    c.ws.addEventListener('close', () => reject(Object.assign(new Error('ws-closed'), { code: 'WS_CLOSED' })));
-  });
+  try {
+    await new Promise((resolve, reject) => {
+      c.ws.addEventListener('close', () => reject(Object.assign(new Error('ws-closed'), { code: 'WS_CLOSED' })));
+    });
+  } finally {
+    // 断线重连路径的会话清理：不清理的话旧 interval 会继续对死连接
+    // evaluate（每次泄漏一个挂起的 promise），galleryConn 也指向死连接。
+    clearInterval(poll);
+    clearInterval(pickPoll);
+    if (activeSession && activeSession.c === c) {
+      activeSession = { c: null, poll: null, pickPoll: null };
+    }
+    if (galleryConn === c) galleryConn = null;
+  }
 }
 
 let activeSession = { c: null, poll: null, pickPoll: null };
@@ -896,10 +934,19 @@ async function runWatchdog() {
       env: process.env,
       windowsHide: true,
     });
+    let restartAttempt = 0;
     child.on('exit', (code, signal) => {
       if (stopping) process.exit(code ?? 0);
-      log.warn(`runner 退出（${code ?? signal}），3s 后拉起`);
-      setTimeout(start, 3000);
+      // 指数退避（3s→6s→12s…上限 60s），30s 稳定后重置；持续崩溃时
+      // 避免 3s 固定间隔无限刷日志与 CPU 占用。
+      const delay = Math.min(3_000 * 2 ** restartAttempt, 60_000);
+      restartAttempt += 1;
+      if (restartAttempt === 5) {
+        log.warn('runner 连续崩溃，已进入指数退避。');
+      }
+      log.warn(`runner 退出（${code ?? signal}），${Math.round(delay / 1000)}s 后拉起`);
+      setTimeout(start, delay);
+      setTimeout(() => { restartAttempt = 0; }, 30_000).unref();
     });
   };
   const stop = () => {
