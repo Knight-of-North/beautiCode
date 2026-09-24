@@ -164,11 +164,20 @@ artifacts\windows\installer\
 
 目前主要支持：
 
-* Windows
-* DeepSeek Harness（推荐）
-* Codex Desktop
-* JPG、JPEG、PNG、WebP 图片
-* MP4 / MOV 视频
+| 宿主 / 平台 | 支持情况 | 安装与卸载 |
+| --- | --- | --- |
+| Windows | ✅ 主要平台 | — |
+| DeepSeek Harness（DSH） | ✅ 推荐 | `npx beauticode-dsh` 安装；`npx beauticode-dsh --remove` 卸载 |
+| Codex Desktop | ✅ | 托盘/启动脚本托管；卸载随托盘退出清理 |
+| WorkBuddy | ✅ | `npm run wb:setup -- install` 安装；`npm run wb:setup -- uninstall` 卸载 |
+| Cursor | ✅ 仅 Windows | `npm run cursor:setup -- install`；`-- uninstall` 卸载（详见 `docs/host-adapter-cursor-doubao.md`） |
+| 豆包 | ✅ 仅 Windows | `npm run doubao:setup -- install`；`-- uninstall` 卸载（详见 `docs/host-adapter-cursor-doubao.md`） |
+| 图片 | ✅ JPG、JPEG、PNG、WebP（AVIF 视宿主） | — |
+| 视频 | ✅ MP4 / MOV（WorkBuddy 另支持 WebM / M4V） | — |
+
+> 说明：Cursor 与豆包走共享桌面 CDP 守护（`scripts/desktop-cdp-setup.mjs`），
+> 当前仅 Windows；WorkBuddy 跨三平台（详见 `docs/host-adapter-workbuddy.md`）。
+> 卸载安装包时会自动调用上述各守护的卸载入口；主题数据保留在本地数据根。
 
 
 ## 关于本地视频

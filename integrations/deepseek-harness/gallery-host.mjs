@@ -43,15 +43,11 @@ export function normalizeSkinCenterUrl(value) {
   }
 }
 
-export async function readBundledSkinCenterUrl() {
-  try {
-    const raw = JSON.parse(await fsp.readFile(path.join(here, "skin-center.json"), "utf8"));
-    return normalizeSkinCenterUrl(raw.url);
-  } catch {
-    return null;
-  }
-}
-
+// 皮肤中心地址由插件内置固定：catalog 与资产下载都在 core 层用
+// assertResponseOrigin 硬校验最终 origin 与 SKIN_CENTER_ORIGIN 一致，
+// 支持外部配置会造成「UI 显示镜像站、下载仍走内置 origin」的假象。
+// 因此不读取环境变量或 skin-center.json（I-4：删除无调用点的死代码，
+// UI 文案已同步更正为「地址内置固定」）。
 export async function resolveConfiguredSkinCenterUrl() {
   return SKIN_CENTER_ORIGIN;
 }

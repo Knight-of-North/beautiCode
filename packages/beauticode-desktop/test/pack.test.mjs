@@ -8,6 +8,10 @@ import { HOST_RUNTIME } from "../src/index.mjs";
 import { stageDesktopAggregate } from "../../../scripts/pack-desktop-aggregate.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+// 版本断言以源 package.json 为准：升级版本号时不再需要同步改测试
+const sourcePkg = JSON.parse(
+  await fs.readFile(path.join(here, "..", "package.json"), "utf8"),
+);
 
 test("staging produces one self-contained runtime for all five hosts", async () => {
   const dest = await fs.mkdtemp(path.join(os.tmpdir(), "beauticode-desktop-pack-"));
@@ -15,7 +19,7 @@ test("staging produces one self-contained runtime for all five hosts", async () 
     await stageDesktopAggregate(dest, { build: false });
     const pkg = JSON.parse(await fs.readFile(path.join(dest, "package.json"), "utf8"));
     assert.equal(pkg.name, "beauticode-desktop");
-    assert.equal(pkg.version, "0.1.0-test.2");
+    assert.equal(pkg.version, sourcePkg.version);
     assert.equal(pkg.private, false);
     assert.equal(pkg.bin["beauticode-desktop"], "./bin/beauticode-desktop.mjs");
     for (const [host, config] of Object.entries(HOST_RUNTIME)) {

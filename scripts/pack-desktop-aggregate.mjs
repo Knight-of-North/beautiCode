@@ -62,10 +62,18 @@ function rewriteWorkbuddyRunner(text) {
 }
 
 function rewriteWorkbuddySetup(text) {
-  return text.replace(
+  const rewritten = text.replace(
     /if \(PACKAGED_RUNTIME\) \{[\s\S]*?^\}\r?\n\r?\nstartDaemon\(\);/m,
     "if (PACKAGED_RUNTIME) {\n  log('  ✓ 使用包内预构建 WorkBuddy adapter');\n}\n\nstartDaemon();",
   );
+  // 复审 I-2：正则失配时 String.replace 静默返回原文，打包产物会退化成
+  // 「每次启动跑 npm run build」且无任何信号。必须断言替换真的发生。
+  if (rewritten === text) {
+    throw new Error(
+      "rewriteWorkbuddySetup 未命中 PACKAGED_RUNTIME 块；wb-setup.mjs 模板已漂移，请同步更新聚合脚本。",
+    );
+  }
+  return rewritten;
 }
 
 function rewriteDesktopAdapter(text) {
@@ -165,7 +173,12 @@ export async function stageDesktopAggregate(destRoot = defaultStageDir(), opts =
 
 async function main() {
   const dest = await stageDesktopAggregate();
-  process.stdout.write(`Staged beauticode-desktop@0.1.0-test.2 at ${dest}\n`);
+  // 复审 I-5：版本号以 beauticode-desktop/package.json 为单一事实源，
+  // 打包脚本与测试都从那里读取，避免三处硬编码漂移。
+  const pkg = JSON.parse(
+    await fsp.readFile(path.join(repoRoot, "packages", "beauticode-desktop", "package.json"), "utf8"),
+  );
+  process.stdout.write(`Staged ${pkg.name}@${pkg.version} at ${dest}\n`);
 }
 
 const launchedDirectly =

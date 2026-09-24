@@ -531,7 +531,11 @@ function Test-BcSessionHostPid([int]$ProcId) {
   if ($ProcId -le 0) { return $false }
   try {
     $info = Get-CimInstance Win32_Process -Filter ("ProcessId = {0}" -f $ProcId) -ErrorAction Stop
-    return ($info.CommandLine -and ($info.CommandLine -match 'session-host\.mjs'))
+    if (-not $info.CommandLine) { return $false }
+    # 复审：仅匹配文件名会误伤其他检出/安装副本下的同名脚本。改为
+    # 匹配本托盘的完整脚本路径（与 setup 脚本的三重过滤范式对齐）。
+    $literal = [regex]::Escape($HostScript)
+    return ($info.CommandLine -match $literal)
   } catch {
     return $false
   }
@@ -687,6 +691,10 @@ function Test-BcCanAdopt($Control) {
 function Resolve-BcSessionHost {
   Write-BcTrayClaim
   $deadline = [datetime]::UtcNow.AddSeconds(15)
+  # 复审：锁 PID 存活但身份不符时（典型：PID 被回收复用给无关进程），
+  # 旧逻辑会空转满 15s 才放弃。给身份校验留 2s 缓冲（兼容 CIM 命令行
+  # 尚未就绪的启动竞态），持续不符即判定为残留复用 PID，直接自行启动。
+  $identityMismatchSince = $null
   while ([datetime]::UtcNow -lt $deadline) {
     $existing = Get-BcExistingControl
     if (Test-BcCanAdopt $existing) {
@@ -704,6 +712,16 @@ function Resolve-BcSessionHost {
       }
     }
     if ($lockPid -le 0 -or -not (Test-BcPidAlive $lockPid)) { break }
+    if (-not (Test-BcSessionHostPid $lockPid)) {
+      if ($null -eq $identityMismatchSince) {
+        $identityMismatchSince = [datetime]::UtcNow
+      } elseif (([datetime]::UtcNow - $identityMismatchSince).TotalMilliseconds -ge 2000) {
+        Write-BcTrayLog ("injector.lock pid {0} is alive but not our session-host; assuming recycled pid" -f $lockPid)
+        break
+      }
+    } else {
+      $identityMismatchSince = $null
+    }
     Start-Sleep -Milliseconds 200
   }
 }

@@ -626,7 +626,14 @@ export class DshSession implements HostSession {
         if (stale && !this.userBusy) {
           this.onStatus?.("DeepSeek Harness 已连接，正在恢复当前背景。");
           const result = await this.reapply();
-          if (!result.ok) throw new Error(result.error);
+          if (!result.ok) {
+            // 用户操作在 stale 判定与 reapply 执行之间抢先置位 userBusy
+            // 时，reapply 会被 busy 守卫拒绝——这不是故障，静默跳过本
+            // tick；下一个 tick 会基于新的 generation 重新评估 stale。
+            if (!/Another background apply is already in progress/.test(result.error)) {
+              throw new Error(result.error);
+            }
+          }
         }
         await this.persistBoundThemeProgress();
       } catch (error) {
