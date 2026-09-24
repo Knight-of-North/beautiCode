@@ -51,6 +51,7 @@ if (args.watchdog) {
   const stopSignals = new Set(['SIGINT', 'SIGTERM']);
   let stopping = false;
   let child = null;
+  let restartAttempt = 0;
   const start = () => {
     if (stopping) return;
     child = spawn(process.execPath, [fileURLToPath(import.meta.url), ...childArgs], {
@@ -61,10 +62,20 @@ if (args.watchdog) {
       if (ended) return;
       ended = true;
       child = null;
-      if (!stopping) setTimeout(start, 1000);
+      if (stopping) return;
+      // 指数退避（1s → 2s → 4s…上限 60s）：PowerShell 被安全策略拦截或
+      // 脚本持续崩溃时，1s 固定重启会无限刷日志并持续占用 CPU。
+      const delay = Math.min(1000 * 2 ** restartAttempt, 60_000);
+      restartAttempt += 1;
+      if (restartAttempt === 5) {
+        console.error('[watchdog] 子进程连续崩溃，已进入指数退避；若持续失败请检查 PowerShell 是否被安全策略拦截。');
+      }
+      setTimeout(start, delay);
     };
     child.once('exit', restart);
     child.once('error', restart);
+    // 子进程稳定存活 30s 后重置退避计数，正常偶发崩溃不受长期惩罚
+    setTimeout(() => { if (!ended) restartAttempt = 0; }, 30_000).unref();
   };
   let finish;
   const finished = new Promise((resolve) => { finish = resolve; });
@@ -130,11 +141,24 @@ function openWs(wsUrl) {
     let id = 0;
     const pending = new Map();
     const handlers = [];
-    const send = (method, params = {}) => new Promise((res, rej) => {
+    const SEND_TIMEOUT_MS = 15_000;
+    // 每个请求带超时并在到时移出 pending：没有超时的话，宿主半开连接
+    // 会让 Runtime.evaluate 永不 settle，busy 卡死、tick 循环静默死亡。
+    const send = (method, params = {}, timeoutMs = SEND_TIMEOUT_MS) => new Promise((res, rej) => {
       const requestId = ++id;
-      pending.set(requestId, { res, rej });
+      const timer = setTimeout(() => {
+        if (pending.delete(requestId)) rej(new Error(`CDP ${method} 超时（${timeoutMs}ms）。`));
+      }, timeoutMs);
+      pending.set(requestId, {
+        res: (value) => { clearTimeout(timer); res(value); },
+        rej: (error) => { clearTimeout(timer); rej(error); },
+      });
       ws.send(JSON.stringify({ id: requestId, method, params }));
     });
+    const failAllPending = (error) => {
+      for (const task of pending.values()) task.rej(error);
+      pending.clear();
+    };
     ws.addEventListener('message', (event) => {
       let message;
       try { message = JSON.parse(event.data); } catch { return; }
@@ -151,7 +175,13 @@ function openWs(wsUrl) {
       onEvent: (handler) => handlers.push(handler),
       close: () => ws.close(),
     }));
-    ws.addEventListener('error', () => reject(new Error('CDP WebSocket connection failed.')));
+    ws.addEventListener('error', () => {
+      failAllPending(new Error('CDP WebSocket 连接失败。'));
+      reject(new Error('CDP WebSocket connection failed.'));
+    });
+    // 断开（含半开恢复）时统一定损：拒绝并清空全部挂起请求，防止
+    // Promise 永久悬挂与 pending Map 无限增长。
+    ws.addEventListener('close', () => failAllPending(new Error('CDP 连接已关闭。')));
   });
 }
 
@@ -315,7 +345,9 @@ function startGallery() {
       if (!skin) { response.writeHead(404).end(); return; }
       let download;
       try {
-        download = await core.downloadApprovedAsset(skin, skin.type === 'video' ? 'image' : 'image', { directory: path.join(dataRoot, 'tmp', 'gallery') });
+        // 缩略图按皮肤自身类型请求资源（视频皮肤请求 /video 端点）；
+        // 旧写法三元两分支同为 'image'，视频皮肤恒拿到图片 MIME。
+        download = await core.downloadApprovedAsset(skin, skin.type, { directory: path.join(dataRoot, 'tmp', 'gallery') });
         response.setHeader('content-type', download.contentType || 'application/octet-stream');
         fs.createReadStream(download.filePath).on('close', () => fs.rmSync(download.tempDir, { recursive: true, force: true })).pipe(response);
       } catch (error) {
@@ -401,13 +433,24 @@ async function runSession(endpoint) {
   log.info(`已注入 ${shared.safeTargetLabel(endpoint.target.url)} :${endpoint.port}`);
 
   let busy = false;
+  let busySince = 0;
   let lastPick = 0;
   let lastApply = '';
   let lastSkin = 0;
   let lastDirty = 0;
   const tick = async () => {
-    if (busy) return;
+    if (busy) {
+      // 看门狗：单轮 tick 正常毫秒级完成（所有 CDP 调用已带 15s 超时），
+      // busy 持续超过 60s 意味着连接处于异常半开状态，强制断开让
+      // 主循环重连自愈，而不是让守护「假活」到进程被手动结束。
+      if (Date.now() - busySince > 60_000) {
+        log.warn('tick 已停滞超过 60s，强制断开 CDP 连接以自愈。');
+        connection.close();
+      }
+      return;
+    }
     busy = true;
+    busySince = Date.now();
     try {
       const snapshot = await evaluate(connection, `({pick:window.__bcDesktopPickRequest||0,apply:window.__bcDesktopApplyRequest||null,skin:window.__bcDesktopSkinCenterRequest||0,dirty:window.__bcDesktopPersistDirty||0,entry:!!document.getElementById('beauticode-${args.host}-background-entry'),style:!!document.getElementById('beauticode-${args.host}-background-style'),stage:!!document.getElementById('beauticode-bg-stage'),anchor:!!document.querySelector(${JSON.stringify(spec.anchorSelector)})})`);
       if (!snapshot.anchor) {
@@ -419,14 +462,28 @@ async function runSession(endpoint) {
         lastPick = snapshot.pick;
         await evaluate(connection, 'window.__bcDesktopPickRequest=0');
         let picked = '';
-        try { picked = await pickFileNative(); } catch {}
+        try { picked = await pickFileNative(); }
+        catch (error) {
+          // 原生选择器失败不再静默：留下诊断日志并给用户可见提示
+          log.warn(`文件选择器无法打开：${error?.message || error}`);
+          await evaluate(connection, `window.__bcDesktopMessage(${JSON.stringify('无法打开文件选择器。')})`).catch(() => {});
+        }
         if (picked) await setFileInput(connection, picked, { mode: 'import', save: false });
       }
       if (snapshot.apply?.requestId && snapshot.apply.requestId !== lastApply) {
         lastApply = snapshot.apply.requestId;
         await evaluate(connection, 'window.__bcDesktopApplyRequest=null');
         try { await setFileInput(connection, snapshot.apply.path, snapshot.apply); }
-        catch { await evaluate(connection, `window.__bcDesktopMessage(${JSON.stringify(spec.strings.missingFile)})`); }
+        catch (error) {
+          // 区分「原文件不可用」与「格式不支持」，避免一律谎报文件丢失；
+          // 真实原因始终进日志供排查。
+          const message = String(error?.message || error || '');
+          log.warn(`背景应用失败：${message}`);
+          const text = message.includes('格式不支持') || message.includes('不支持的媒体')
+            ? spec.strings.unsupportedFile
+            : spec.strings.missingFile;
+          await evaluate(connection, `window.__bcDesktopMessage(${JSON.stringify(text)})`);
+        }
       }
       if (snapshot.skin && snapshot.skin !== lastSkin) {
         lastSkin = snapshot.skin;

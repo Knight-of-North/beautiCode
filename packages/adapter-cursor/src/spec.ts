@@ -12,7 +12,6 @@ function candidates(): string[] {
     process.env["ProgramFiles(x86)"]
       ? path.join(process.env["ProgramFiles(x86)"]!, "Cursor", "Cursor.exe")
       : "",
-    "D:\\cursor\\Cursor.exe",
   ];
   return [...new Set(values.filter(Boolean).map((value) => path.win32.normalize(value)))];
 }
@@ -25,8 +24,11 @@ export const CURSOR_CDP_SPEC: DesktopCdpHostSpec = Object.freeze({
   defaultPort: 9341,
   candidatePorts: Object.freeze([9351, 9361, 9371]),
   popupTopInset: 44,
+  // 仅作声明样例：workbench 页 URL 内嵌实际安装路径，各机器不同；
+  // Cursor 的目标页匹配走 isDesktopTarget 的结构规则（scheme 前缀 +
+  // workbench.html 固定后缀），不使用该字段的严格等值。
   targetUrl:
-    "vscode-file://vscode-app/d:/cursor/resources/app/out/vs/code/electron-sandbox/workbench/workbench.html",
+    "vscode-file://vscode-app/resources/app/out/vs/code/electron-sandbox/workbench/workbench.html",
   targetRuntimeUrl: "vscode-file://vscode-app/",
   mount: "cursor",
   anchorSelector: '[data-action-id="marketplace"][data-sidebar-primary-action]',

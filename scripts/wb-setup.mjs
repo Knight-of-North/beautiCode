@@ -158,11 +158,15 @@ const WIN_LOG = path.join(
 );
 const LINUX_ENV = path.join(home, '.config/environment.d/beauticode-wb.conf');
 const LINUX_DESKTOP = path.join(home, '.config/autostart/beauticode-beauticode-wb-runner.desktop');
+// Linux 不放 /tmp：固定名 + 世界可写目录是 CWE-377（不安全临时文件），
+// 同机其他用户可预置符号链接劫持写入或诱导误杀进程。
+const LINUX_CACHE_DIR = path.join(home, '.cache', 'beauticode');
+const LINUX_LOG = path.join(LINUX_CACHE_DIR, 'wb-runner.log');
 const PID_FILE = PLAT === 'win32'
   ? path.join(home, 'AppData', 'Roaming', 'beauticode', 'wb-runner.pid')
   : PLAT === 'darwin'
     ? path.join(home, 'Library', 'Logs', 'beauticode-wb-runner.pid')
-    : '/tmp/beauticode-wb-runner.pid';
+    : path.join(LINUX_CACHE_DIR, 'wb-runner.pid');
 
 const macPlist = () => `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -187,7 +191,7 @@ function shSingleQuote(value) {
   return `'${String(value).replace(/'/g, `'\\''`)}'`;
 }
 const linuxDesktop = () => {
-  const cmd = `exec ${shSingleQuote(NODE)} ${shSingleQuote(RUNNER)} --watchdog >> /tmp/beauticode-wb-runner.log 2>&1`;
+  const cmd = `exec ${shSingleQuote(NODE)} ${shSingleQuote(RUNNER)} --watchdog >> ${shSingleQuote(LINUX_LOG)} 2>&1`;
   const escaped = cmd.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   return `[Desktop Entry]
 Type=Application
@@ -239,6 +243,9 @@ function installWin() {
 function uninstallWin() {
   fs.rmSync(STARTUP_VBS, { force: true });
   run(`reg delete "HKCU\\Environment" /v ${ENV_KEY} /f`);
+  // 与 installWin 对称：删除环境变量后广播变更，让已运行的 explorer 等
+  // 进程立即感知，而不是残留到下次注销登录。
+  broadcastWindowsEnvironment();
   log('  ✓ 已拆除启动项并删除用户环境变量');
 }
 function statusWin() {
@@ -283,6 +290,19 @@ function findWindowsRunnerPids() {
     .filter((value) => Number.isInteger(value) && value > 0);
 }
 
+function isLinuxRunnerPid(pid) {
+  // kill 前校验进程身份：/proc/<pid>/cmdline 必须包含精确 runner 路径，
+  // 防止 PID 复用后把 SIGTERM 发给无关程序。
+  if (PLAT === 'win32') return true;
+  try {
+    const cmdline = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8');
+    return cmdline.replaceAll('\0', ' ').includes(RUNNER);
+  } catch {
+    // /proc 不可用（非 Linux 或权限受限）时退回保守策略：不终止
+    return false;
+  }
+}
+
 function stopManagedDaemon() {
   try {
     if (PLAT === 'win32') {
@@ -294,6 +314,10 @@ function stopManagedDaemon() {
       if (!fs.existsSync(PID_FILE)) return;
       const pid = parseInt(fs.readFileSync(PID_FILE, 'utf8').trim(), 10);
       if (!Number.isFinite(pid) || pid <= 0) return;
+      if (!isLinuxRunnerPid(pid)) {
+        log(`  ⚠ PID 文件里的 ${pid} 不是 beautiCode runner（可能是复用的 PID），跳过终止。`);
+        return;
+      }
       try { process.kill(pid, 'SIGTERM'); } catch { /* already gone */ }
     }
   } finally {
@@ -303,9 +327,14 @@ function stopManagedDaemon() {
 
 function startDaemon() {
   stopManagedDaemon();
-  const logFile = PLAT === 'darwin' ? MAC_LOG : PLAT === 'win32' ? WIN_LOG : '/tmp/beauticode-wb-runner.log';
+  const logFile = PLAT === 'darwin' ? MAC_LOG : PLAT === 'win32' ? WIN_LOG : LINUX_LOG;
   fs.mkdirSync(path.dirname(logFile), { recursive: true });
   fs.mkdirSync(path.dirname(PID_FILE), { recursive: true });
+  // 写入前拒绝已存在的符号链接：用户目录内的路径也可能被早期攻击预置
+  try {
+    const existing = fs.lstatSync(PID_FILE);
+    if (existing.isSymbolicLink()) fs.rmSync(PID_FILE, { force: true });
+  } catch { /* 不存在，正常 */ }
   const out = fs.openSync(logFile, 'a');
   const child = spawn(NODE, [RUNNER, '--watchdog'], {
     detached: true, stdio: ['ignore', out, out],

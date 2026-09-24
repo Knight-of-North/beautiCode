@@ -86,7 +86,7 @@ function rewriteCoreImports(jsText) {
     .replaceAll("from '@beauticode/core'", "from '../core/index.js'");
 }
 
-function rewritePluginCoreImports(jsText) {
+export function rewritePluginCoreImports(jsText) {
   return jsText
     .replaceAll('from "@beauticode/core"', 'from "./vendor/core/index.js"')
     .replaceAll("from '@beauticode/core'", "from './vendor/core/index.js'")

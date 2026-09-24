@@ -10,6 +10,7 @@ import {
   buildDesktopLaunchCommand,
   classifyDesktopStartupProcess,
   isDesktopMainProcess,
+  isDesktopTarget,
   parseRemoteDebuggingFlags,
   probeDesktopCdp,
   repairDesktopProcess,
@@ -21,7 +22,8 @@ const spec = {
   executableCandidates: ['C:\\Apps\\Cursor\\Cursor.exe'],
   defaultPort: 9341, candidatePorts: [9351],
   popupTopInset: 44,
-  targetUrl: 'vscode-file://vscode-app/measured/workbench.html',
+  // 结构匹配锚定 workbench 固定后缀，mock 也要贴近真实 URL 形态
+  targetUrl: 'vscode-file://vscode-app/measured/out/vs/code/electron-sandbox/workbench/workbench.html',
   targetRuntimeUrl: 'vscode-file://vscode-app/', mount: 'cursor',
   anchorSelector: '[data-action-id="marketplace"]', anchorText: 'Customize',
   strings: {},
@@ -43,6 +45,27 @@ const processRow = (createdAtMs, port = null) => ({
 });
 
 const withPid = (row, pid) => ({ ...row, pid });
+
+// 回归：Cursor workbench 页 URL 内嵌安装路径，各机器不同——
+// 结构匹配必须对所有安装位置命中，同时保持失败关闭（陌生 URL 拒绝）。
+test('cursor target matching accepts any install path and rejects foreign urls', () => {
+  const targets = [
+    'vscode-file://vscode-app/d:/cursor/resources/app/out/vs/code/electron-sandbox/workbench/workbench.html',
+    'vscode-file://vscode-app/c:/Users/someone/AppData/Local/Programs/cursor/resources/app/out/vs/code/electron-sandbox/workbench/workbench.html',
+    'vscode-file://vscode-app/D:/Tools/Cursor 0.50/resources/app/out/vs/code/electron-sandbox/workbench/workbench.html',
+  ].map((url) => ({ id: url, type: 'page', url }));
+  for (const target of targets) {
+    assert.equal(isDesktopTarget(spec, target), true, target.url);
+  }
+  const foreign = [
+    { id: 'f1', type: 'page', url: 'vscode-file://vscode-app/resources/app/out/vs/code/electron-sandbox/workbench/index.html' },
+    { id: 'f2', type: 'page', url: 'devtools://devtools/bundled/inspector.html' },
+    { id: 'f3', type: 'iframe', url: 'vscode-file://vscode-app/x/resources/app/out/vs/code/electron-sandbox/workbench/workbench.html' },
+  ];
+  for (const target of foreign) {
+    assert.equal(isDesktopTarget(spec, target), false, target.url);
+  }
+});
 
 test('startup repair has an exclusive 10 second boundary and requires creation time', () => {
   const now = 2_000_000;

@@ -34,19 +34,30 @@ const startupVbs = path.join(startupDir, `beauticode-${args.host}-runner.vbs`);
 const quoteVbs = (value) => `"${String(value).replaceAll('"', '""')}"`;
 const runnerArgs = [RUNNER, '--host', args.host, '--watchdog', '--pid-file', pidFile];
 
-function pidAlive(pid) {
-  if (!Number.isInteger(pid) || pid < 1) return false;
-  const result = spawnSync('tasklist.exe', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'], { encoding: 'utf8', windowsHide: true });
-  return result.status === 0 && String(result.stdout).includes(`"${pid}"`);
-}
-
-function readPid() {
-  try { return Number(fs.readFileSync(pidFile, 'utf8').trim()); } catch { return 0; }
+function findRunnerPids() {
+  // 绝不信任 PID 文件：Windows 会快速复用 PID，跨重启残留的 pid 文件可能
+  // 指向任何无关程序。按「映像名 node.exe + 命令行含精确 runner 路径 +
+  // --watchdog 模式」三重过滤枚举，防止安装/卸载误杀无关进程树。
+  // （与 scripts/wb-setup.mjs 的 findWindowsRunnerPids 同一范式。）
+  const runner = String(RUNNER).replace(/'/g, "''");
+  const script = [
+    `$runner='${runner}'`,
+    '$needle=$runner.ToLowerInvariant()',
+    "Get-CimInstance Win32_Process | Where-Object { $_.Name -match '^node(\\.exe)?$' -and $_.CommandLine -and $_.CommandLine.ToLowerInvariant().Contains($needle) -and $_.CommandLine -match '--watchdog' } | Select-Object -ExpandProperty ProcessId",
+  ].join('; ');
+  const result = spawnSync('powershell.exe', [
+    '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script,
+  ], { encoding: 'utf8', windowsHide: true });
+  if (result.status !== 0) return [];
+  return String(result.stdout || '').split(/\s+/)
+    .map((value) => Number.parseInt(value, 10))
+    .filter((value) => Number.isInteger(value) && value > 0);
 }
 
 function stopRunner() {
-  const pid = readPid();
-  if (pidAlive(pid)) spawnSync('taskkill.exe', ['/PID', String(pid), '/T', '/F'], { windowsHide: true });
+  for (const pid of findRunnerPids()) {
+    spawnSync('taskkill.exe', ['/PID', String(pid), '/T', '/F'], { windowsHide: true });
+  }
   try { fs.unlinkSync(pidFile); } catch {}
 }
 
@@ -71,12 +82,12 @@ async function readCdpStatus() {
 }
 
 if (args.command === 'status') {
-  const pid = readPid();
+  const pids = findRunnerPids();
   process.stdout.write(JSON.stringify({
     host: args.host,
     installed: fs.existsSync(startupVbs),
-    running: pidAlive(pid),
-    pid: pidAlive(pid) ? pid : null,
+    running: pids.length > 0,
+    pid: pids[0] ?? null,
     cdp: await readCdpStatus(),
     startup: startupVbs,
     state: path.join(dataDir, 'state.json'),

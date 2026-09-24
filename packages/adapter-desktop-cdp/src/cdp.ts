@@ -56,7 +56,21 @@ export function isDesktopTarget(
   spec: DesktopCdpHostSpec,
   target: DesktopTarget,
 ): boolean {
-  return target.type === "page" && target.url === spec.targetUrl;
+  if (target.type !== "page") return false;
+  const url = String(target.url);
+  if (spec.kind === "cursor") {
+    // Cursor 的 workbench 页 URL 内嵌实际安装路径（每台机器不同），
+    // 严格等值会让所有非作者安装位置的用户 100% 静默失效。改为结构
+    // 匹配：锚定 scheme 前缀（targetRuntimeUrl）+ 固定的 workbench
+    // 后缀，路径段允许任意安装位置；失败关闭语义不变（不命中即拒绝）。
+    return (
+      url.startsWith(spec.targetRuntimeUrl) &&
+      /\/out\/vs\/code\/electron-sandbox\/workbench\/workbench\.html$/i.test(
+        url,
+      )
+    );
+  }
+  return url === spec.targetUrl;
 }
 
 export function pickDesktopTarget(

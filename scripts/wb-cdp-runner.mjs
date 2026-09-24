@@ -215,7 +215,13 @@ const GALLERY_MEDIA = {
   '.gif': 'image/gif', '.bmp': 'image/bmp', '.avif': 'image/avif',
   '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.webm': 'video/webm', '.m4v': 'video/mp4',
 };
-const VIDEO = new Set(['.mp4', '.mov']);
+// 视频扩展名集合从 GALLERY_MEDIA 的 MIME 派生，消除双份清单漂移
+// （此前 .webm/.m4v 在白名单里却按图片校验，导入必失败且误导用户）。
+const VIDEO = new Set(
+  Object.entries(GALLERY_MEDIA)
+    .filter(([, mime]) => mime.startsWith('video/'))
+    .map(([ext]) => ext),
+);
 let galleryConn = null;
 let galleryPort = null;
 let galleryServer = null;
@@ -370,7 +376,9 @@ function startGalleryServer(applyFn) {
       if (!core.isSafeSkinId(id)) { deny(res, 400, 'bad id'); return; }
       Promise.resolve(skinRegistry.get(id) || core.getApprovedSkin(id)).then(async (skin) => {
         skinRegistry.set(id, skin);
-        const download = await core.downloadApprovedAsset(skin, 'image', { directory: path.join(DATA_DIR, 'tmp', 'gallery') });
+        // 缩略图按皮肤自身类型请求资源（视频皮肤请求 /video 端点），
+        // 与 /apply 分支一致；写死 'image' 会让视频皮肤拿到图片 MIME。
+        const download = await core.downloadApprovedAsset(skin, skin.type, { directory: path.join(DATA_DIR, 'tmp', 'gallery') });
         res.setHeader('content-type', download.contentType || 'application/octet-stream');
         fs.createReadStream(download.filePath).on('close', () => fs.rmSync(download.tempDir, { recursive: true, force: true })).pipe(res);
       }).catch((error) => deny(res, 502, error.message));

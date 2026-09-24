@@ -92,20 +92,6 @@ function Test-PatchHasBridge([string]$Text) {
   return [bool]($Text -match "(?m)^\s*-\s*id:\s*$bridgeId\s*$")
 }
 
-function Backup-DuplicateBridgePatch([string]$Path, [string]$Raw) {
-  $count = ([regex]::Matches($Raw, "(?m)^[ \t]*-[ \t]*id:[ \t]*$bridgeId[ \t]*$")).Count
-  if ($count -le 1) { return }
-  $stamp = [DateTime]::UtcNow.ToString("yyyyMMddHHmmssfff")
-  $backup = "$Path.beauticode-backup-$stamp"
-  $suffix = 0
-  while (Test-Path -LiteralPath $backup) {
-    $suffix += 1
-    $backup = "$Path.beauticode-backup-$stamp-$suffix"
-  }
-  Copy-Item -LiteralPath $Path -Destination $backup -Force:$false
-  Write-BcLog ("Backed up duplicate beauticode bridge patch to {0}" -f $backup)
-}
-
 function Backup-BridgePatch([string]$Path) {
   if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return }
   $stamp = [DateTime]::UtcNow.ToString("yyyyMMddHHmmssfff")
@@ -123,14 +109,16 @@ function Remove-BridgeFromPatch([string]$Path) {
   if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
   $raw = [IO.File]::ReadAllText($Path)
   if (-not (Test-PatchHasBridge $raw)) { return $false }
+  # 同缩进边界截断：子项行必须以 [ \t] 开头，末个缩进行允许无换行结尾，
+  # 避免吞掉下一个顶层条目（C-1 同源问题）。
   $cleaned = [regex]::Replace(
     $raw,
-    "(?ms)(?:^|\r?\n)# beauticode-bridge \(installer\)\r?\n- insert:\r?\n(?:[ \t]+.*\r?\n)*",
+    "(?ms)(?:^|\r?\n)# beauticode-bridge \(installer\)\r?\n- insert:\r?\n(?:[ \t]+[^\r\n]*(?:\r?\n|$))*",
     "`n"
   )
   $cleaned = [regex]::Replace(
     $cleaned,
-    "(?ms)(?:^|\r?\n)- insert:\r?\n(?:[ \t]+.*\r?\n)*?[ \t]+-\s*id:\s*$bridgeId\r?\n(?:[ \t]+.*\r?\n)*",
+    "(?ms)(?:^|\r?\n)- insert:\r?\n(?:[ \t]+[^\r\n]*(?:\r?\n|$))*?[ \t]+-\s*id:\s*$bridgeId[ \t]*(?:\r?\n|$)(?:[ \t]+[^\r\n]*(?:\r?\n|$))*",
     "`n"
   )
   $trimmed = $cleaned.Trim()
@@ -158,19 +146,25 @@ function Write-BridgePatch([string]$Path, [string]$Body) {
     return
   }
   $raw = [IO.File]::ReadAllText($Path)
-  Backup-DuplicateBridgePatch $Path $raw
+  # C-1：任何对用户文件的写入前无条件备份，杜绝"无备份覆盖"路径。
+  Backup-BridgePatch $Path
   if (Test-PatchHasBridge $raw) {
-    $replaced = [regex]::Replace(
-      $raw,
-      "(?ms)(?:# beauticode-bridge \(installer\)\r?\n)?- insert:\r?\n(?:[ \t]+.*\r?\n)*?[ \t]+-\s*id:\s*$bridgeId\r?\n(?:[ \t]+.*\r?\n)*",
-      ($Body + "`r`n")
+    # 块级替换：先匹配完整块再 Remove/Insert，两个形态分别对应
+    # ① 本脚本写入的注释标注块；② 无注释但块内含 bridge id 的块。
+    # 子项按 [ \t] 同缩进截断，末个缩进行允许无换行结尾（手工编辑的文件）。
+    $patterns = @(
+      '(?ms)(?:^|\r?\n)# beauticode-bridge \(installer\)\r?\n- insert:\r?\n(?:[ \t]+[^\r\n]*(?:\r?\n|$))*',
+      "(?ms)(?:^|\r?\n)- insert:\r?\n(?:[ \t]+[^\r\n]*(?:\r?\n|$))*?[ \t]+-[ \t]*id:[ \t]*$bridgeId[ \t]*(?:\r?\n|$)(?:[ \t]+[^\r\n]*(?:\r?\n|$))*"
     )
-    if ($replaced -eq $raw) {
-      [IO.File]::WriteAllText($Path, $Body + "`r`n")
-    } else {
-      [IO.File]::WriteAllText($Path, $replaced.TrimEnd() + "`r`n")
+    foreach ($pattern in $patterns) {
+      $match = [regex]::Match($raw, $pattern)
+      if (-not $match.Success) { continue }
+      $updated = $raw.Remove($match.Index, $match.Length).Insert($match.Index, $Body + "`r`n")
+      [IO.File]::WriteAllText($Path, $updated.TrimEnd() + "`r`n")
+      return
     }
-    return
+    # 失败关闭：无法安全定位块时绝不整文件覆盖，保留原文件交由用户手工处理。
+    throw ("无法安全更新 {0} 中的 beauticode-bridge 块（格式不受支持）。原文件已保留并备份，请手工将该块替换为：`r`n{1}" -f $Path, $Body)
   }
   $stripped = $raw.Trim()
   if ($stripped -eq "" -or $stripped -eq "[]") {

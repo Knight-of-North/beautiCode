@@ -544,12 +544,36 @@ function Get-BcInjectorLockPid {
   try { return [int]$json.pid } catch { return 0 }
 }
 
+function Test-BcLoopbackUrl([string]$Url) {
+  # 与 integrations/deepseek-harness/control-client.mjs 的
+  # isLoopbackControlUrl 对齐：scheme 必须 http、主机必须是回环地址、
+  # 禁止 userinfo/query/hash、路径只允许空或 /。数据根内的控制面文件
+  # 可被同用户任意进程改写；不校验就把本机绝对路径与 Bearer token 发
+  # 到外部主机是现实的本地攻击面。
+  if (-not $Url) { return $false }
+  try {
+    $uri = [Uri]$Url
+    if ($uri.Scheme -ne "http") { return $false }
+    if ($uri.UserInfo) { return $false }
+    if ($uri.Query -or $uri.Fragment) { return $false }
+    if (-not ($uri.AbsolutePath -eq "" -or $uri.AbsolutePath -eq "/")) { return $false }
+    $hostName = $uri.Host.ToLowerInvariant()
+    return (@("127.0.0.1", "localhost", "::1") -contains $hostName)
+  } catch {
+    return $false
+  }
+}
+
 function Get-BcExistingControl {
   $root = Get-BcTrayDataRoot
   foreach ($name in @("session-host.json", "dsh-control.json")) {
     $json = Read-BcJsonFile (Join-Path $root $name)
     if (-not $json) { continue }
     if (-not $json.url -or -not $json.token) { continue }
+    if (-not (Test-BcLoopbackUrl ([string]$json.url))) {
+      Write-BcTrayLog ("rejected non-loopback control url in {0}; falling back to self-hosted session" -f $name)
+      continue
+    }
     $ownerPid = 0
     try { $ownerPid = [int]$json.pid } catch { continue }
     if (-not (Test-BcPidAlive $ownerPid)) { continue }

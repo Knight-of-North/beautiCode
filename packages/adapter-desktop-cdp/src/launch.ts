@@ -617,6 +617,10 @@ export function startDesktopStartupRepairMonitor(
       { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] },
     );
     child = monitor;
+    // 监视器稳定存活 30s 后重置退避计数，正常偶发退出不受长期惩罚
+    setTimeout(() => {
+      if (!finished) restartAttempt = 0;
+    }, 30_000).unref();
     const lines = readline.createInterface({ input: monitor.stdout! });
     lines.on("line", (line) => {
       let raw: Record<string, unknown>;
@@ -650,12 +654,24 @@ export function startDesktopStartupRepairMonitor(
       }
     });
     let finished = false;
+    let restartAttempt = 0;
     const finish = () => {
       if (finished) return;
       finished = true;
       lines.close();
       if (child === monitor) child = null;
-      if (!closed) restartTimer = setTimeout(start, 1_000);
+      if (!closed) {
+        // 指数退避（1s → 2s → 4s…上限 60s）：PowerShell 被安全策略拦截
+        // 或脚本持续崩溃时，1s 固定重启会无限刷日志并持续占用 CPU。
+        const delay = Math.min(1_000 * 2 ** restartAttempt, 60_000);
+        restartAttempt += 1;
+        if (restartAttempt === 5) {
+          log?.warn(
+            `${spec.displayName} 启动修复监视器连续退出，已进入指数退避；若持续失败请检查 PowerShell 是否被安全策略拦截。`,
+          );
+        }
+        restartTimer = setTimeout(start, delay);
+      }
     };
     monitor.once("error", finish);
     monitor.once("exit", finish);
